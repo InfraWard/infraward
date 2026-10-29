@@ -1,0 +1,347 @@
+<header class="page-header">
+  <div>
+    <h1>Inventario</h1>
+    <p class="muted">
+      @if (topology()) {
+        Topología: hosts con lo que tienen dentro y sus relaciones
+      } @else {
+        {{ total() }} assets · jerarquía por relaciones «contiene»
+        @if (query().terms.length && matches() !== null) {
+          · <span data-query-matches>{{ matches() }} {{ matches() === 1 ? 'coincide' : 'coinciden' }}</span>
+        }
+      }
+    </p>
+    @if (quick()) {
+      <p-chip
+        [label]="quickLabel() + ' (' + matches() + ')'"
+        icon="bi bi-funnel"
+        [removable]="true"
+        (onRemove)="clearQuickFilter()"
+        data-quick-filter
+      />
+    }
+  </div>
+  <p-selectbutton
+    [options]="views"
+    optionLabel="label"
+    optionValue="value"
+    [ngModel]="topology() ? 'topology' : 'tree'"
+    (ngModelChange)="setView($event)"
+    [allowEmpty]="false"
+    aria-label="Vista del inventario"
+    data-inventory-view
+  >
+    <ng-template #item let-o>
+      <i class="bi {{ o.icon }}" aria-hidden="true"></i> {{ o.label }}
+    </ng-template>
+  </p-selectbutton>
+</header>
+
+@if (topology()) {
+  <app-inventory-topology
+    [project]="project() ?? null"
+    [rootId]="root() ?? null"
+    (projectChange)="setProject($event)"
+    (rootChange)="setRoot($event)"
+  />
+} @else {
+
+<!--
+  Sin [scrollable]: en ese modo OptimusNG pinta la cabecera y el cuerpo en dos <table> distintas
+  y las columnas dejan de coincidir. Los anchos van en el colgroup (aplican a cabecera y cuerpo).
+-->
+<p-treetable
+  [value]="nodes()"
+  [loading]="loading()"
+  dataKey="id"
+  [rowHover]="true"
+  (onNodeExpand)="onExpand($event)"
+  (onNodeCollapse)="onCollapse($event)"
+  styleClass="inventory"
+  tableStyleClass="inventory-table"
+>
+  <ng-template #caption>
+    <div class="toolbar">
+      <span class="group">
+        <app-query-input
+          class="search"
+          scope="inventory"
+          [value]="state.filter()"
+          (valueChange)="applyFilter($event)"
+          [extraValues]="queryValues()"
+          placeholder="Nombre o filtros: tag:prod tipo:servidor -estado:parado"
+          ariaLabel="Buscar en el inventario"
+        />
+        <app-project-filter [value]="quick()?.project" (changed)="setProject($event)" />
+      </span>
+      <span class="spacer"></span>
+      <span class="group">
+        <span class="switch">
+          <p-toggleswitch
+            inputId="retired"
+            [ngModel]="state.includeRetired()"
+            (ngModelChange)="setIncludeRetired($event)"
+          />
+          <label for="retired">Mostrar retirados</label>
+        </span>
+        <p-button
+          icon="bi bi-arrows-expand"
+          label="Expandir"
+          severity="secondary"
+          [text]="true"
+          (onClick)="expandAll()"
+        />
+        <p-button
+          icon="bi bi-arrows-collapse"
+          label="Contraer"
+          severity="secondary"
+          [text]="true"
+          (onClick)="collapseAll()"
+        />
+        <p-button
+          icon="bi bi-arrow-clockwise"
+          severity="secondary"
+          [text]="true"
+          ariaLabel="Recargar"
+          pTooltip="Recargar"
+          (onClick)="load()"
+        />
+      </span>
+      <span class="group">
+        <p-multiselect
+          [options]="optionalColumns"
+          optionLabel="label"
+          optionValue="key"
+          [ngModel]="visibleOptional()"
+          (ngModelChange)="setVisibleColumns($event)"
+          [showHeader]="false"
+          placeholder="Columnas"
+          selectedItemsLabel="Columnas ({0})"
+          [maxSelectedLabels]="0"
+          appendTo="body"
+          ariaLabel="Columnas visibles"
+          data-columns
+        />
+        <p-button
+          icon="bi bi-download"
+          label="Exportar"
+          severity="secondary"
+          [outlined]="true"
+          pTooltip="Lo que se ve: con el filtro y las columnas visibles"
+          (onClick)="exportMenu.toggle($event)"
+          data-action="export"
+        />
+        <p-menu #exportMenu [model]="exportItems" [popup]="true" appendTo="body" />
+        @if (auth.can('assets.write')) {
+          <p-button
+            icon="bi bi-plus-lg"
+            label="Añadir servidor"
+            routerLink="/enroll"
+            data-action="enroll"
+          />
+        }
+      </span>
+    </div>
+  </ng-template>
+
+  <ng-template #colgroup>
+    <colgroup>
+      @if (selectable()) {
+        <col style="width: 2.75rem" />
+      }
+      @for (col of columns(); track col.key) {
+        <col [style.width]="col.width" />
+      }
+    </colgroup>
+  </ng-template>
+
+  <ng-template #header>
+    <tr>
+      @if (selectable()) {
+        <th scope="col" class="select-col">
+          <p-checkbox
+            [binary]="true"
+            [ngModel]="allVisibleSelected()"
+            [indeterminate]="someVisibleSelected()"
+            (ngModelChange)="toggleAllVisible($event)"
+            ariaLabel="Seleccionar todo lo visible"
+            pTooltip="Seleccionar todo lo visible (lo que cumple el filtro)"
+            data-select-all
+          />
+        </th>
+      }
+      @for (col of columns(); track col.key) {
+        <th scope="col" [attr.data-col]="col.key">{{ col.label }}</th>
+      }
+    </tr>
+  </ng-template>
+
+  <ng-template #body let-rowNode let-row="rowData">
+    <tr
+      [ttRow]="rowNode"
+      [attr.data-asset]="row.name"
+      [attr.data-id]="row.id"
+      [class.selected-row]="selected().has(row.id)"
+    >
+      @if (selectable()) {
+        <td class="select-col">
+          <p-checkbox
+            [binary]="true"
+            [ngModel]="selected().has(row.id)"
+            (ngModelChange)="toggleSelected(row.id, $event)"
+            [ariaLabel]="'Seleccionar ' + row.name"
+            data-select
+          />
+        </td>
+      }
+      <td data-col="name">
+        <span class="name-cell">
+          <p-treetable-toggler [rowNode]="rowNode" />
+          <i class="bi {{ typeIcons[row.type] }} type-icon" aria-hidden="true"></i>
+          <span class="name-text">
+            <span class="name-line">
+              <a
+                [routerLink]="['/assets', row.id]"
+                [pTooltip]="row.discoveredName ? 'Descubierto como «' + row.discoveredName + '»' : undefined"
+                >{{ row.name }}</a
+              >
+              @for (projectId of row.projects; track projectId) {
+                @if (store.projectsById().get(projectId); as p) {
+                  <span
+                    class="project-dot"
+                    [style.background]="p.color ?? 'var(--p-text-muted-color)'"
+                    [pTooltip]="'Proyecto ' + p.name"
+                    [attr.aria-label]="'Proyecto ' + p.name"
+                    role="img"
+                    data-project-dot
+                  ></span>
+                }
+              }
+            </span>
+            @if (row.discoveredName) {
+              <small class="discovered" data-discovered>descubierto: {{ row.discoveredName }}</small>
+            }
+            @if (row.roles.length) {
+              <span class="roles">
+                @for (role of row.roles; track role) {
+                  <span class="role">{{ role }}</span>
+                }
+              </span>
+            }
+            @if (row.tags.length) {
+              <!-- Solo lectura: el nombre y los tags se cambian en la ficha. -->
+              <app-tag-editor class="row-tags" [tags]="row.tags" [compact]="true" />
+            }
+          </span>
+        </span>
+      </td>
+      @if (shownColumns().has('type')) {
+      <td data-col="type">{{ typeLabels[row.type] }}</td>
+      }
+      @if (shownColumns().has('address')) {
+      <td data-col="address">
+        @if (row.address) {
+          <code class="address">{{ row.address }}</code>
+        } @else {
+          <span class="none" aria-label="Sin dirección">—</span>
+        }
+      </td>
+      }
+      @if (shownColumns().has('status')) {
+      <td data-col="status">
+        <span class="chips">
+          @if (row.runtimeState) {
+            <p-tag
+              [value]="runtimeLabels[row.runtimeState]"
+              [severity]="runtimeSeverity[row.runtimeState]"
+              icon="bi {{ runtimeIcons[row.runtimeState] }}"
+              [pTooltip]="'Estado de ejecución: ' + row.runtimeDetail"
+              data-runtime
+            />
+          }
+          @if (row.expiry; as expiry) {
+            <p-tag
+              [value]="expiry.label"
+              [severity]="expiry.severity"
+              icon="bi bi-calendar-event"
+              styleClass="nowrap-tag"
+              [pTooltip]="(row.type === 'domain' ? 'El registro del dominio caduca el ' : 'Válido hasta el ') + (expiry.date | date: 'medium')"
+              data-expiry
+            />
+          }
+          @if (row.dnsWarning === 'high') {
+            <p-tag value="Colgante" severity="danger" icon="bi bi-exclamation-octagon" styleClass="nowrap-tag"
+              pTooltip="Apunta a un destino retirado, a una IP privada que no está en el inventario o a un nombre que no existe (posible subdomain takeover)"
+              data-dns-warning="high" />
+          } @else if (row.dnsWarning === 'info') {
+            <p-tag value="IP desconocida" severity="secondary" icon="bi bi-question-circle" styleClass="nowrap-tag"
+              pTooltip="Apunta a una IP pública que no está en el inventario: márcalo como esperado si es de un tercero"
+              data-dns-warning="info" />
+          }
+          @if (row.status !== 'active' || (!row.runtimeState && !row.expiry && !row.dnsWarning)) {
+            <p-tag
+              [value]="statusLabels[row.status]"
+              [severity]="statusSeverity[row.status]"
+              pTooltip="Estado en el inventario"
+              data-inventory-status
+            />
+          }
+        </span>
+      </td>
+      }
+      @if (shownColumns().has('vulns')) {
+      <td data-col="vulns">
+        @if (row.worst; as worst) {
+          @let fixable = fixableLabel(row);
+          <span
+            class="vulns"
+            tabindex="0"
+            [pTooltip]="row.findingsSummary"
+            tooltipPosition="top"
+            [attr.aria-label]="'Vulnerabilidades: ' + row.findingsSummary"
+          >
+            <p-tag [value]="worst" [severity]="severityTag[worst]" />
+            @if (fixable) {
+              <span class="fixable" data-fixable>{{ fixable }} <small>con parche</small></span>
+            } @else {
+              <span class="no-fix">sin C/H con parche</span>
+            }
+          </span>
+        } @else if (row.scanDisabled) {
+          <span
+            class="no-fix"
+            pTooltip="Escaneo desactivado por la política de inventario: sus vulnerabilidades no cuentan"
+            tooltipPosition="top"
+            data-scan-disabled
+          >
+            <i class="bi bi-slash-circle" aria-hidden="true"></i> sin escaneo
+          </span>
+        }
+      </td>
+      }
+    </tr>
+  </ng-template>
+
+  <ng-template #emptymessage>
+    <tr>
+      <td [attr.colspan]="columns().length + (selectable() ? 1 : 0)" class="empty">
+        @if (error(); as message) {
+          <p-message severity="error" icon="bi bi-exclamation-triangle">{{ message }}</p-message>
+        } @else if (state.filter().trim()) {
+          Nada coincide con «{{ state.filter().trim() }}».
+        } @else {
+          Aún no hay assets en el inventario.
+        }
+      </td>
+    </tr>
+  </ng-template>
+</p-treetable>
+
+<app-bulk-actions
+  [target]="bulkTarget()"
+  [count]="selected().size"
+  [noun]="selected().size === 1 ? 'asset seleccionado' : 'assets seleccionados'"
+  (done)="onBulkDone()"
+  (cleared)="clearSelection()"
+/>
+}

@@ -1,0 +1,164 @@
+<div class="login">
+  <aside class="brand-panel" aria-label="InfraWard">
+    <div class="brand">
+      <span class="logo"><app-brand-mark [size]="40" /></span>
+      <span class="name">InfraWard</span>
+    </div>
+
+    <div class="pitch">
+      <h2>Tu infraestructura, inventariada y vigilada.</h2>
+      <ul class="features">
+        <li>
+          <i class="bi bi-diagram-3" aria-hidden="true"></i>
+          <div>
+            <strong>Descubrimiento automático</strong>
+            <span>Da de alta un servidor y InfraWard mapea todo lo que contiene: CT, VMs y contenedores, organizados en su jerarquía real y siempre al día.</span>
+          </div>
+        </li>
+        <li>
+          <i class="bi bi-shield-check" aria-hidden="true"></i>
+          <div>
+            <strong>Seguridad por defecto</strong>
+            <span>Acceso de solo lectura, certificados SSH de vida corta, host keys verificadas y secretos cifrados en OpenBao.</span>
+          </div>
+        </li>
+        <li>
+          <i class="bi bi-shield-exclamation" aria-hidden="true"></i>
+          <div>
+            <strong>Vulnerabilidades accionables</strong>
+            <span>Escaneo con Trivy de servidores e imágenes, priorizando lo que ya tiene parche disponible.</span>
+          </div>
+        </li>
+      </ul>
+    </div>
+
+    <p class="foot">Inventario inteligente de infraestructura</p>
+  </aside>
+
+  <main class="form-panel">
+    <section class="card">
+      <header>
+        <h1>Entrar</h1>
+        @if (providers()?.oidc && !providers()?.local) {
+          <p>Accede con tu cuenta de {{ providers()!.oidc!.name }}.</p>
+        } @else {
+          <p>Accede con tu cuenta de InfraWard.</p>
+        }
+      </header>
+
+      @if (oidcMessage(); as message) {
+        <p-message severity="error" icon="bi bi-exclamation-triangle" role="alert" styleClass="notice" data-oidc-error>
+          {{ message }}
+        </p-message>
+      } @else if (loggedOut() && !error()) {
+        <p-message severity="info" icon="bi bi-box-arrow-left" styleClass="notice" data-logged-out>
+          Has cerrado la sesión.
+        </p-message>
+      } @else if (mfaFailed() && !error()) {
+        <p-message severity="warn" icon="bi bi-shield-exclamation" styleClass="notice" data-mfa-failed>
+          Demasiados códigos incorrectos. Vuelve a entrar.
+        </p-message>
+      } @else if (expired() && !error()) {
+        <p-message severity="warn" icon="bi bi-clock-history" styleClass="notice" data-expired>
+          Tu sesión ha terminado. Vuelve a entrar.
+        </p-message>
+      }
+
+      @if (providers()?.oidc; as oidc) {
+        <p-button
+          [label]="'Entrar con ' + oidc.name"
+          icon="bi bi-box-arrow-in-right"
+          iconPos="right"
+          [severity]="providers()!.local ? 'secondary' : 'primary'"
+          [outlined]="providers()!.local"
+          [loading]="redirecting()"
+          (onClick)="startOidc()"
+          data-action="oidc-login"
+          fluid
+        />
+        @if (showForm()) {
+          <p class="divider" role="separator"><span>o con tu email</span></p>
+        }
+      }
+
+      @if (showForm()) {
+      <form [formGroup]="form" (ngSubmit)="submit()" class="form" novalidate>
+        <div class="field">
+          <label for="email">Email</label>
+          <p-iconfield>
+            <p-inputicon styleClass="bi bi-envelope" />
+            <input
+              pInputText
+              id="email"
+              type="email"
+              formControlName="email"
+              autocomplete="username"
+              placeholder="example@email.com"
+              [invalid]="showError('email')"
+              [attr.aria-describedby]="showError('email') ? 'email-error' : null"
+              fluid
+            />
+          </p-iconfield>
+          @if (showError('email')) {
+            <p-message id="email-error" severity="error" variant="simple" size="small">
+              {{ form.controls.email.hasError('required') ? 'Escribe tu email.' : 'Ese email no es válido.' }}
+            </p-message>
+          }
+        </div>
+
+        <div class="field">
+          <label for="password">Contraseña</label>
+          <p-password
+            inputId="password"
+            formControlName="password"
+            autocomplete="current-password"
+            [feedback]="false"
+            [toggleMask]="true"
+            [invalid]="showError('password')"
+            (keyup)="checkCapsLock($event)"
+            (keydown)="checkCapsLock($event)"
+            fluid
+          />
+          @if (showError('password')) {
+            <p-message severity="error" variant="simple" size="small">Escribe tu contraseña.</p-message>
+          } @else if (capsLock()) {
+            <p-message severity="warn" variant="simple" size="small" icon="bi bi-capslock" data-capslock>
+              Bloq. Mayús está activado.
+            </p-message>
+          }
+        </div>
+
+        @if (error(); as message) {
+          <p-message severity="error" icon="bi bi-exclamation-triangle" role="alert">{{ message }}</p-message>
+        }
+
+        <p-button
+          type="submit"
+          label="Entrar"
+          icon="bi bi-box-arrow-in-right"
+          iconPos="right"
+          [loading]="loading()"
+          fluid
+        />
+      </form>
+      } @else if (providers() && !providers()!.local) {
+        <div class="emergency">
+          <p-button
+            label="Acceso de emergencia"
+            icon="bi bi-life-preserver"
+            severity="secondary"
+            size="small"
+            [text]="true"
+            (onClick)="emergencyOpen.set(true)"
+            data-action="emergency"
+          />
+        </div>
+      }
+
+      <p class="session-note">
+        <i class="bi bi-info-circle" aria-hidden="true"></i>
+        La sesión se cierra al cerrar el navegador o tras un rato sin actividad.
+      </p>
+    </section>
+  </main>
+</div>

@@ -1,0 +1,146 @@
+:host ::ng-deep .crumbs {
+  background: transparent;
+  padding: 0.25rem 0;
+  margin: 0.25rem 0 0.75rem;
+
+  a {
+    text-decoration: none;
+  }
+}
+
+.head {
+  margin-bottom: 1rem;
+
+  app-asset-name {
+    display: block;
+    margin-bottom: 0.5rem;
+  }
+
+  h1 {
+    margin: 0 0 0.5rem;
+    font-size: 1.6rem;
+    display: flex;
+    gap: 0.6rem;
+    align-items: center;
+  }
+}
+
+.head app-asset-actions {
+  display: block;
+  margin-top: 0.75rem;
+}
+
+.head .terminal-only {
+  margin-top: 0.75rem;
+}
+
+.chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+:host ::ng-deep .mb {
+  margin-bottom: 0.75rem;
+}
+
+dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.4rem 1rem;
+  margin: 0;
+
+}
+
+dt {
+  color: var(--p-text-muted-color);
+}
+
+dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+code {
+  font-size: 0.85em;
+}
+
+.muted {
+  color: var(--p-text-muted-color);
+}
+
+.address {
+  font-size: 0.9rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 4px;
+  background: var(--p-content-hover-background);
+}
+
+.warnings {
+  margin: 0.25rem 0 0;
+  padding-left: 1.25rem;
+}
+
+h3 {
+  font-size: 1rem;
+  margin: 1rem 0 0.5rem;
+}
+
+.snapshots {
+  display: grid;
+  grid-template-columns: minmax(18rem, 2fr) 3fr;
+  gap: 1.5rem;
+  align-items: start;
+
+  @media (width < 900px) {
+    grid-template-columns: 1fr;
+  }
+}
+
+.clickable {
+  cursor: pointer;
+}
+
+a {
+  color: var(--p-primary-color);
+  text-decoration: none;
+}
+
+.duplicate {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+}
+
+.duplicate-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+:host ::ng-deep .snapshot-raw {
+  margin-top: 1.25rem;
+}
+
+/* Pestaña Relaciones: el conmutador de vistas (un solo grupo) y el enlace a la topología, alineados. */
+.relations-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.25rem;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.topology-link {
+  display: inline-flex;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+/* En la cabecera, los tags y «Añadir tag» con la altura de las etiquetas de al lado (p-tag). */
+app-tag-editor {
+  --tag-font-size: 0.875rem;
+  --tag-padding: 0.25rem 0.6rem;
+}

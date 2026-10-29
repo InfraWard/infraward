@@ -1,0 +1,107 @@
+/* Estilos globales. Los iconos son de Bootstrap Icons (`<i class="bi bi-…">`), cargados en angular.json. */
+
+html {
+  font-size: 14px;
+  color-scheme: light dark;
+  /* Sin rebote al pasarse del principio o del final de la página. Va en html, no en body: el que
+     desplaza la página es el elemento raíz. Las listas con scroll propio no lo heredan. */
+  overscroll-behavior: none;
+}
+
+body {
+  margin: 0;
+  font-family:
+    Inter,
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    'Helvetica Neue',
+    Arial,
+    sans-serif;
+  color: var(--p-text-color);
+  background: var(--p-app-background);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* El preflight de Tailwind deja los encabezados con el peso del texto. */
+h1,
+h2,
+h3,
+h4 {
+  font-weight: 600;
+}
+
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* Páginas de sección: cabecera, texto secundario y barra de filtros. */
+.page-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  align-items: flex-end;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+
+  h1 {
+    margin: 0.5rem 0 0.25rem;
+    font-size: 1.5rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+
+    code {
+      white-space: nowrap;
+    }
+  }
+
+  p {
+    margin: 0;
+    color: var(--p-text-muted-color);
+  }
+}
+
+.text-muted {
+  color: var(--p-text-muted-color);
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.nowrap {
+  white-space: nowrap;
+}
+
+/* Tablas anchas: desplazan dentro, nunca la página. */
+.table-scroll {
+  overflow-x: auto;
+}
+
+// Bootstrap Icons baja el glifo (`vertical-align: -.125em`) para alinearlo con el texto en línea.
+// Dentro de p-tag el contenedor ya centra en vertical con flex: con ese desplazamiento el icono
+// queda más bajo que el texto.
+.p-tag .bi,
+.p-tag .bi::before,
+.p-chip .bi,
+.p-chip .bi::before,
+.p-message .bi,
+.p-message .bi::before {
+  line-height: 1;
+  vertical-align: 0;
+}
+
+/* Tooltips con su ancho natural (con tope): así OptimusNG detecta cuando no caben junto al borde
+   de la ventana y los recoloca, en vez de estrecharlos hasta una palabra por línea. */
+.p-tooltip {
+  width: max-content;
+  max-width: min(22rem, calc(100vw - 1rem));
+}
+

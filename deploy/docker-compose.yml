@@ -1,0 +1,84 @@
+# Dependencias externas de InfraWard (PostgreSQL, Redis y, con el perfil `openbao`, OpenBao;
+# con el perfil `oidc`, un Keycloak de pruebas para el login con OIDC).
+# Los servicios propios (web, api, worker) se añadirán cuando se containericen.
+name: infraward
+
+services:
+  postgres:
+    image: docker.io/library/postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-infraward}
+      POSTGRES_USER: ${POSTGRES_USER:-infraward}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD es obligatoria (ver deploy/.env.example)}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      # Desde PostgreSQL 18 la imagen usa PGDATA=/var/lib/postgresql/18/docker: se monta el directorio padre.
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: docker.io/library/redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Proveedor de secretos OpenBao (opcional): COMPOSE_PROFILES=openbao o pnpm openbao:bootstrap,
+  # que además lo inicializa y crea la política y el AppRole de la app.
+  openbao:
+    image: quay.io/openbao/openbao:2.6.4
+    profiles: [openbao]
+    restart: unless-stopped
+    command: ["server", "-config=/openbao/config/config.hcl"]
+    ports:
+      - "127.0.0.1:${OPENBAO_PORT:-8200}:8200"
+    volumes:
+      - ./openbao/config.hcl:/openbao/config/config.hcl:ro
+      - ./secrets/openbao:/openbao/unseal:ro
+      - openbao-data:/openbao/file
+    healthcheck:
+      # 200 = inicializado y desellado; 501 = sin inicializar (lo hace bootstrap.sh).
+      test: ["CMD-SHELL", "wget -q -O /dev/null 'http://127.0.0.1:8200/v1/sys/health?uninitcode=200' || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Proveedor OIDC de PRUEBAS (opcional): pnpm keycloak:bootstrap lo levanta y crea el secreto
+  # del cliente (en el proveedor de secretos de la API) y usuarios de prueba. Realm `infraward`
+  # importado de keycloak/infraward-realm.json (sin secretos). Solo desarrollo (start-dev, H2).
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.7.4
+    profiles: [oidc]
+    restart: unless-stopped
+    command: ["start-dev", "--import-realm"]
+    environment:
+      # Issuer = http://localhost:<puerto>/realms/infraward, igual para el navegador y la API.
+      KC_HOSTNAME: http://localhost:${KEYCLOAK_PORT:-8081}
+      KC_HEALTH_ENABLED: "true"
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      # Solo cuenta en el primer arranque (lo pasa bootstrap.sh desde deploy/secrets/keycloak/).
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-}
+    ports:
+      - "127.0.0.1:${KEYCLOAK_PORT:-8081}:8080"
+    volumes:
+      - ./keycloak/infraward-realm.json:/opt/keycloak/data/import/infraward-realm.json:ro
+      - keycloak-data:/opt/keycloak/data/h2
+
+volumes:
+  postgres-data:
+  redis-data:
+  openbao-data:
+  keycloak-data:

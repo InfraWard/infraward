@@ -1,0 +1,501 @@
+@let a = asset();
+@if (!hasFacts() && a.type !== 'image' && a.type !== 'volume' && a.type !== 'network') {
+  <p class="muted not-collected">
+    <i class="bi bi-info-circle" aria-hidden="true"></i>
+    Aún no se ha recogido información de este asset.
+  </p>
+}
+
+<!--
+  Dos columnas independientes (sin filas compartidas, así no quedan huecos): la principal con lo
+  propio del asset y lo que contiene; la lateral con sistema, red, dependencias y organización.
+  Por debajo de 1100 px, una sola.
+-->
+<div class="overview">
+  <div class="main">
+    @if (row(); as r) {
+      @if (r.worst || a.type === 'container' || a.type === 'image') {
+        <p-card styleClass="card" data-section="vulns">
+          <ng-template #title><i class="bi bi-shield-exclamation" aria-hidden="true"></i> Vulnerabilidades</ng-template>
+          @if (r.worst; as worst) {
+            @let fixable = fixableLabel(r);
+            <p class="vuln-line">
+              <p-tag [value]="'Máxima: ' + worst" [severity]="severityTag[worst]" />
+              @if (fixable) {
+                <strong>{{ fixable }}</strong> con parche disponible
+              } @else {
+                Ninguna CRITICAL ni HIGH con parche
+              }
+            </p>
+            <p class="muted small">{{ r.findingsSummary }}</p>
+            <p-button
+              label="Ver vulnerabilidades"
+              icon="bi bi-arrow-right"
+              iconPos="right"
+              severity="secondary"
+              [outlined]="true"
+              size="small"
+              (onClick)="openTab.emit('findings')"
+            />
+          } @else {
+            <p class="muted">Sin vulnerabilidades abiertas conocidas.</p>
+          }
+        </p-card>
+      }
+    }
+
+
+    @if (container().length) {
+      <p-card styleClass="card" data-section="container">
+        <ng-template #title><i class="bi bi-box-seam" aria-hidden="true"></i> Contenedor</ng-template>
+        <dl>
+          @for (item of container(); track item.label) {
+            <dt>{{ item.label }}</dt>
+            <dd>{{ item.value }}</dd>
+          }
+        </dl>
+      </p-card>
+    }
+
+    @if (usage() !== null) {
+      <p-card styleClass="card" data-section="usage">
+        <ng-template #title><i class="bi bi-activity" aria-hidden="true"></i> Uso</ng-template>
+        @if (usage() === 0) {
+          <p class="usage-line">
+            <p-tag value="Sin uso" severity="secondary" icon="bi bi-moon" data-unused />
+            Ningún contenedor activo
+            {{ a.type === 'network' ? 'está conectado a esta red' : a.type === 'volume' ? 'monta este volumen' : 'usa esta imagen' }}.
+          </p>
+          @if (a.type === 'image') {
+            <p class="muted small">
+              Sigue en el host, así que se escanea igual, pero sus vulnerabilidades tienen prioridad
+              baja: no cuentan como accionables (salen con «Ver todas»).
+            </p>
+          }
+        } @else {
+          <p class="usage-line">
+            <p-tag [value]="usage() + (usage() === 1 ? ' contenedor' : ' contenedores')" severity="success" icon="bi bi-box-seam" />
+            {{ a.type === 'network' ? 'conectados' : a.type === 'volume' ? 'la montan' : 'la usan' }}
+            (en «Dependencias», abajo).
+          </p>
+        }
+      </p-card>
+    }
+
+    @for (section of [
+      { key: 'volume', title: 'Volumen', icon: 'bi-device-hdd', items: volume() },
+      { key: 'docker-network', title: 'Red de Docker', icon: 'bi-diagram-2', items: dockerNetwork() },
+      { key: 'plesk', title: 'Plesk', icon: 'bi-hdd-network', items: plesk() },
+      { key: 'certificate', title: 'Certificado', icon: 'bi-patch-check', items: certificate() },
+      { key: 'connector', title: 'Conector de dominios', icon: 'bi-cloud', items: connector() },
+      { key: 'domain', title: 'Dominio', icon: 'bi-globe2', items: zone() },
+      { key: 'dns-record', title: 'Registro DNS', icon: 'bi-signpost-split', items: dnsRecord() },
+    ]; track section.key) {
+      @if (section.items.length) {
+        <p-card styleClass="card" [attr.data-section]="section.key">
+          <ng-template #title><i class="bi {{ section.icon }}" aria-hidden="true"></i> {{ section.title }}</ng-template>
+          @if ((section.key === 'certificate' || section.key === 'domain') && row()?.expiry; as expiry) {
+            <p class="usage-line">
+              <p-tag [value]="expiry.label" [severity]="expiry.severity" icon="bi bi-calendar-event" data-expiry />
+            </p>
+          }
+          <dl>
+            @for (item of section.items; track item.label) {
+              <dt>{{ item.label }}</dt>
+              <dd>{{ item.value }}</dd>
+            }
+          </dl>
+        </p-card>
+      }
+    }
+
+    @if (a.type === 'dns_record') {
+      <app-service-path [assetId]="a.id" />
+      <app-dns-check [assetId]="a.id" />
+    }
+    @if (a.type === 'domain') {
+      <app-domain-service-paths [assetId]="a.id" />
+    }
+
+    @if (mounts().length || containerNetworks().length) {
+      <p-card styleClass="card" data-section="mounts">
+        <ng-template #title><i class="bi bi-hdd-stack" aria-hidden="true"></i> Montajes y redes</ng-template>
+        @if (mounts().length) {
+          <table class="mini">
+            <thead>
+              <tr>
+                <th scope="col">Origen</th>
+                <th scope="col">Destino</th>
+                <th scope="col"></th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (m of mounts(); track m.destination) {
+                <tr [attr.data-mount]="m.destination">
+                  <td>
+                    @if (m.type === 'volume') {
+                      <i class="bi bi-device-hdd" aria-hidden="true"></i> {{ m.name }}
+                    } @else if (m.source) {
+                      <code>{{ m.source }}</code>
+                    } @else {
+                      <span class="muted">{{ m.type }}</span>
+                    }
+                  </td>
+                  <td><code>{{ m.destination }}</code></td>
+                  <td>
+                    @if (m.readOnly) {
+                      <p-tag value="solo lectura" severity="secondary" />
+                    }
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        }
+        @if (containerNetworks().length) {
+          <dl>
+            @for (n of containerNetworks(); track n.name) {
+              <dt><i class="bi bi-diagram-2" aria-hidden="true"></i> {{ n.name }}</dt>
+              <dd>
+                @if (n.ipv4 || n.ipv6) {
+                  <code>{{ n.ipv4 ?? n.ipv6 }}</code>
+                } @else {
+                  <span class="muted">sin IP (parado)</span>
+                }
+              </dd>
+            }
+          </dl>
+        }
+      </p-card>
+    }
+
+    @if (image().length) {
+      <p-card styleClass="card" data-section="image">
+        <ng-template #title><i class="bi bi-layers" aria-hidden="true"></i> Imagen</ng-template>
+        <dl>
+          @for (item of image(); track item.label) {
+            <dt>{{ item.label }}</dt>
+            <dd><code>{{ item.value }}</code></dd>
+          }
+        </dl>
+      </p-card>
+    }
+
+    @if (children().length) {
+      <p-card styleClass="card" data-section="children">
+        <ng-template #title><i class="bi bi-diagram-3" aria-hidden="true"></i> Contiene ({{ children().length }})</ng-template>
+        <table class="mini">
+          <thead>
+            <tr>
+              <th scope="col">Nombre</th>
+              <th scope="col">Tipo</th>
+              <th scope="col">Dirección</th>
+              <th scope="col">Estado</th>
+              <th scope="col">Vulnerabilidades</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (c of shownChildren(); track c.id) {
+              <tr [attr.data-child]="c.name">
+                <td>
+                  <a [routerLink]="['/assets', c.id]">
+                    <i class="bi {{ typeIcons[c.type] }}" aria-hidden="true"></i> {{ c.name }}
+                  </a>
+                </td>
+                <td>{{ typeLabels[c.type] }}</td>
+                <td>
+                  @if (c.address) {
+                    <code>{{ c.address }}</code>
+                  } @else {
+                    <span class="muted">—</span>
+                  }
+                </td>
+                <td class="state">
+                  @if (c.runtimeState) {
+                    <p-tag [value]="runtimeLabels[c.runtimeState]" [severity]="runtimeSeverity[c.runtimeState]" />
+                  }
+                  @if (c.expiry; as e) {
+                    <p-tag [value]="e.label" [severity]="e.severity" icon="bi bi-calendar-event" data-expiry />
+                  }
+                  @if (c.dnsWarning === 'high') {
+                    <p-tag value="Colgante" severity="danger" icon="bi bi-exclamation-octagon" data-dns-warning="high" />
+                  } @else if (c.dnsWarning === 'info') {
+                    <p-tag value="IP desconocida" severity="secondary" data-dns-warning="info" />
+                  }
+                  @if (c.status !== 'active' || (!c.runtimeState && !c.expiry && !c.dnsWarning)) {
+                    <p-tag [value]="statusLabels[c.status]" [severity]="statusSeverity[c.status]" />
+                  }
+                </td>
+                <td>
+                  @if (c.worst; as worst) {
+                    <span [pTooltip]="c.findingsSummary">
+                      <p-tag [value]="worst" [severity]="severityTag[worst]" />
+                      @if (fixableLabel(c); as f) {
+                        {{ f }} <span class="muted small">con parche</span>
+                      }
+                    </span>
+                  }
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+        @if (children().length > shownChildren().length) {
+          <p class="muted small more-children" data-more-children>
+            Y {{ children().length - shownChildren().length }} más (primero lo que pide atención).
+            <a [routerLink]="[]" [queryParams]="{ tab: 'relations', view: 'hierarchy' }">Ver todos en Relaciones</a>
+          </p>
+        }
+      </p-card>
+    }
+
+    @if (docker(); as d) {
+      @if (dockerTotal()) {
+        <p-card styleClass="card" data-section="docker">
+          <ng-template #title><i class="bi bi-boxes" aria-hidden="true"></i> Docker: volúmenes, redes e imágenes</ng-template>
+          <div class="docker-lists">
+            @for (group of [
+              { key: 'volumes', title: 'Volúmenes', items: d.volumes },
+              { key: 'networks', title: 'Redes', items: d.networks },
+              { key: 'images', title: 'Imágenes', items: d.images },
+            ]; track group.key) {
+              <section [attr.data-docker]="group.key">
+                <h4>{{ group.title }} ({{ group.items.length }})</h4>
+                <ul>
+                  @for (r of group.items; track r.id) {
+                    <li>
+                      <a [routerLink]="['/assets', r.id]">
+                        <i class="bi {{ typeIcons[r.type] }}" aria-hidden="true"></i> {{ r.name }}
+                      </a>
+                      @if (r.status !== 'active') {
+                        <p-tag [value]="statusLabels[r.status]" [severity]="statusSeverity[r.status]" />
+                      }
+                      @if (r.inUse) {
+                        <span class="muted small">{{ r.containers }} {{ r.containers === 1 ? 'contenedor' : 'contenedores' }}</span>
+                      } @else {
+                        <p-tag value="sin uso" severity="secondary" data-unused />
+                      }
+                    </li>
+                  } @empty {
+                    <li class="muted small">Ninguno</li>
+                  }
+                </ul>
+              </section>
+            }
+          </div>
+        </p-card>
+      }
+    }
+
+    @if (services().relevant.length || services().hidden) {
+      <p-card styleClass="card" data-section="services">
+        <ng-template #title><i class="bi bi-gear-wide-connected" aria-hidden="true"></i> Servicios en marcha</ng-template>
+        <div class="chips">
+          @for (s of services().relevant; track s) {
+            <span class="chip">{{ s }}</span>
+          } @empty {
+            <span class="muted">Solo servicios del sistema.</span>
+          }
+        </div>
+        @if (services().hidden) {
+          <p class="muted small">
+            Y {{ services().hidden }} del sistema base.
+            <a href="" (click)="$event.preventDefault(); openTab.emit('services')">Ver todos</a>
+          </p>
+        }
+      </p-card>
+    }
+
+    @if (ports().length) {
+      <p-card styleClass="card" data-section="ports">
+        <ng-template #title><i class="bi bi-plug" aria-hidden="true"></i> Puertos en escucha</ng-template>
+        <table class="mini">
+          <thead>
+            <tr>
+              <th scope="col">Puerto</th>
+              <th scope="col">Proceso</th>
+              <th scope="col">Escucha en</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (p of topPorts(); track p.port + p.proto + p.process) {
+              <tr [attr.data-port]="p.port + '/' + p.proto">
+                <td><code>{{ p.port }}/{{ p.proto }}</code></td>
+                <td>{{ p.process ?? '—' }}</td>
+                <td>
+                  @if (p.exposure === 'local') {
+                    <p-tag value="solo local" severity="secondary" />
+                  } @else {
+                    <code>{{ p.addresses.join(', ') }}</code>
+                  }
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+        @if (ports().length > topPorts().length) {
+          <p class="muted small">
+            <a href="" (click)="$event.preventDefault(); openTab.emit('ports')">Ver los {{ portCount() }} puertos</a>
+          </p>
+        }
+      </p-card>
+    }
+
+    <app-asset-notes [asset]="a" (changed)="policyChanged.emit()" />
+  </div>
+
+  <aside class="side" aria-label="Datos del sistema y organización">
+    @if (system().length) {
+      <p-card styleClass="card" data-section="system">
+        <ng-template #title><i class="bi bi-cpu" aria-hidden="true"></i> Sistema</ng-template>
+        <dl>
+          @for (item of system(); track item.label) {
+            <dt>{{ item.label }}</dt>
+            <dd>{{ item.value }}</dd>
+          }
+        </dl>
+      </p-card>
+    }
+
+    <p-card styleClass="card" data-section="network">
+      <ng-template #title><i class="bi bi-ethernet" aria-hidden="true"></i> Red y acceso</ng-template>
+      <dl>
+        <dt>Dirección</dt>
+        <dd>
+          @if (row()?.address; as address) {
+            <code>{{ address }}</code>
+          } @else {
+            <span class="muted">—</span>
+          }
+        </dd>
+        <dt>Conexión</dt>
+        <dd>
+          @if (a.connection; as c) {
+            <code>{{ c.user }}&#64;{{ c.host }}:{{ c.port }}</code>
+          } @else if (a.facts['infraward'] && $any(a.facts['infraward']).via === 'pct') {
+            <span class="muted">Desde el nodo Proxmox (pct exec)</span>
+          } @else {
+            <span class="muted">Sin conexión directa</span>
+          }
+        </dd>
+        @if (a.connection) {
+          <dt>Autenticación</dt>
+          <dd data-ssh-auth>
+            @if (a.sshAuth === 'ca_certificate') {
+              <!-- Corto para la columna lateral; el detalle, en el tooltip. -->
+              <span
+                class="nowrap"
+                pTooltip="Certificados de vida corta firmados por la CA SSH: el servidor no guarda claves permanentes"
+              >
+                <i class="bi bi-patch-check" aria-hidden="true"></i> Certificado de la CA SSH
+              </span>
+            } @else {
+              <i class="bi bi-key" aria-hidden="true"></i> Clave estática
+            }
+          </dd>
+          @if (a.type === 'server') {
+            <dt>Administración</dt>
+            <dd>
+              <app-admin-access [asset]="a" />
+            </dd>
+          }
+        }
+        @for (item of network(); track item.label) {
+          <dt>{{ item.label }}</dt>
+          <dd>{{ item.value }}</dd>
+        }
+      </dl>
+    </p-card>
+
+    @if (dependsOn().length || usedBy().length) {
+      <p-card styleClass="card" data-section="depends">
+        <ng-template #title><i class="bi bi-share" aria-hidden="true"></i> Dependencias</ng-template>
+        <dl>
+          @for (l of dependsOn(); track l.peer.id + l.label) {
+            <dt>{{ l.label }}</dt>
+            <dd>
+              <a [routerLink]="['/assets', l.peer.id]">
+                <i class="bi {{ typeIcons[l.peer.type] }}" aria-hidden="true"></i> {{ l.peer.name }}
+              </a>
+              <span class="muted small">· {{ typeLabels[l.peer.type] }}</span>
+            </dd>
+          }
+          @for (l of usedBy(); track l.peer.id + l.label) {
+            <dt>{{ l.label }}</dt>
+            <dd>
+              <a [routerLink]="['/assets', l.peer.id]">
+                <i class="bi {{ typeIcons[l.peer.type] }}" aria-hidden="true"></i> {{ l.peer.name }}
+              </a>
+              <span class="muted small">· {{ typeLabels[l.peer.type] }}</span>
+            </dd>
+          }
+        </dl>
+      </p-card>
+    }
+
+    @if (hasDomains()) {
+      <app-asset-domains [assetId]="a.id" />
+    }
+    @if (canServe()) {
+      <app-served-domains [assetId]="a.id" />
+    }
+
+    <app-asset-projects [asset]="a" (changed)="policyChanged.emit()" />
+
+    @if (a.status !== 'retired') {
+      <app-asset-policy [asset]="a" (changed)="policyChanged.emit()" />
+    }
+
+    @if (showAccess()) {
+      <app-asset-access [asset]="a" />
+    }
+
+  <p-panel
+    header="Identificadores"
+    [toggleable]="true"
+    [collapsed]="true"
+    styleClass="ids"
+    data-section="identifiers"
+  >
+    <dl>
+      <dt>ID</dt>
+      <dd><code>{{ a.id }}</code></dd>
+      <dt>Clave natural</dt>
+      <dd>
+        @if (a.naturalKey) {
+          <code>{{ a.naturalKey }}</code>
+        } @else {
+          <span class="muted">—</span>
+        }
+      </dd>
+      <dt>Host key</dt>
+      <dd>
+        @if (a.hostKeyFingerprint) {
+          <code>{{ a.hostKeyFingerprint }}</code>
+        } @else {
+          <span class="muted">—</span>
+        }
+      </dd>
+      <dt>Autenticación SSH</dt>
+      <dd>
+        <code>{{ a.sshAuth }}</code>
+      </dd>
+      <dt>Credenciales</dt>
+      <dd>
+        @for (ref of credentialRefs(); track ref[0]) {
+          <div>
+            <i class="bi bi-key" aria-hidden="true"></i>
+            {{ ref[0] }}: <code>{{ ref[1] }}</code>
+          </div>
+        } @empty {
+          <span class="muted">Ninguna</span>
+        }
+      </dd>
+      <dt>Alta en el inventario</dt>
+      <dd>{{ a.createdAt | date: 'short' }}</dd>
+      <dt>Actualizado</dt>
+      <dd>{{ a.updatedAt | date: 'short' }}</dd>
+    </dl>
+  </p-panel>
+  </aside>
+</div>

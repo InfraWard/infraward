@@ -1,0 +1,10 @@
+/*
+ * Tailwind CSS v4 + utilidades de Optimus UI. Va en un .css aparte (no en styles.scss) porque
+ * Sass resolvería estos @import por su cuenta y Tailwind nunca llegaría a procesarlos.
+ * Optimus pinta sus estilos en la capa `optimus` (ver cssLayer en app.config.ts), declarada
+ * antes de `utilities` para que las clases de Tailwind puedan sobrescribir a los componentes.
+ */
+@layer theme, base, optimus, components, utilities;
+
+@import 'tailwindcss';
+@import '@openng/optimus-ui-tailwindcss';

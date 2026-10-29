@@ -1,0 +1,39 @@
+{
+  "name": "@infraward/domain",
+  "version": "0.0.0",
+  "license": "AGPL-3.0-only",
+  "private": true,
+  "description": "Entidades TypeORM y lógica de dominio del inventario. Solo backend.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch",
+    "lint": "eslint src",
+    "test": "vitest run",
+    "test:cov": "vitest run --coverage --coverage.reporter=lcovonly --coverage.reporter=text-summary"
+  },
+  "dependencies": {
+    "@infraward/shared-types": "workspace:*"
+  },
+  "peerDependencies": {
+    "typeorm": "^1.1.1"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^4.1.2",
+    "eslint": "^10.0.0",
+    "typeorm": "^1.1.1",
+    "typescript": "~6.0.2",
+    "vitest": "^4.1.2"
+  }
+}

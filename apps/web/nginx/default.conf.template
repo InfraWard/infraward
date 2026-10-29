@@ -1,0 +1,99 @@
+# nginx de la imagen web (ver Dockerfile, target `web`): sirve la SPA y reenvía /api/ a la API y
+# /gateway/ al gateway de la terminal quitando el prefijo, igual que proxy.conf.json en
+# desarrollo. ${API_UPSTREAM}, ${GATEWAY_UPSTREAM} y ${NGINX_LOCAL_RESOLVERS} los sustituye
+# envsubst al arrancar el contenedor.
+
+# Script de alta y sus avisos (`/api/enroll/<token>/...`): el token de un solo uso va en la ruta,
+# así que esas peticiones no se escriben en el access log. Con un `map` y no con otra `location`:
+# el proxy y las cabeceras de /api/ son los mismos para todo.
+map $request_uri $infraward_access_log {
+    ~^/api/enroll/  0;
+    default         1;
+}
+
+server {
+    listen 8080;
+    server_name _;
+    root /usr/share/nginx/html;
+    access_log /var/log/nginx/access.log main if=$infraward_access_log;
+
+    server_tokens off;
+    gzip on;
+    gzip_types text/css application/javascript application/json image/svg+xml;
+
+    # Cabeceras de seguridad. nginx solo hereda los add_header de este nivel en las location que
+    # no tienen ninguno propio, así que las de abajo que ponen Cache-Control las repiten.
+    # frame-ancestors solo vale como cabecera (no en la CSP <meta> del index.html). HSTS se ignora
+    # por http y surte efecto detrás del proxy con TLS.
+    add_header X-Frame-Options "DENY" always;
+    add_header Content-Security-Policy "frame-ancestors 'none'" always;
+    add_header Strict-Transport-Security "max-age=31536000" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "no-referrer" always;
+
+    # Rutas internas del gateway (terminal): solo por la red interna (http://api:3000), nunca
+    # desde fuera. Van además protegidas por el secreto compartido.
+    location ^~ /api/internal/ {
+        return 404;
+    }
+
+    # ^~: que las expresiones regulares de abajo nunca capturen rutas de la API.
+    location ^~ /api/ {
+        proxy_pass ${API_UPSTREAM}/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        # Progreso del alta en tiempo real (SSE): sin búfer y con conexiones largas.
+        proxy_buffering off;
+        proxy_read_timeout 1h;
+        # La API manda las suyas (y una CSP más estricta, que se mantiene): sin duplicados.
+        proxy_hide_header X-Frame-Options;
+        proxy_hide_header X-Content-Type-Options;
+        proxy_hide_header Referrer-Policy;
+    }
+
+    # WebSocket de la terminal (DESIGN §11): mismo origen que la web, así la cookie de la sesión
+    # viaja en el upgrade y el gateway exige que sea la de la sesión que pidió el ticket. Con una
+    # variable y `resolver`: si no hay gateway desplegado, la web arranca igual (502 aquí).
+    location ^~ /gateway/ {
+        resolver ${NGINX_LOCAL_RESOLVERS} valid=30s;
+        set $gateway_upstream ${GATEWAY_UPSTREAM};
+        rewrite ^/gateway/(.*)$ /$1 break;
+        proxy_pass $gateway_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # Sesiones largas: el gateway ya corta por inactividad y duración máxima.
+        proxy_read_timeout 9h;
+        proxy_send_timeout 9h;
+        proxy_buffering off;
+    }
+
+    # Ficheros con hash en el nombre: caché larga.
+    location ~* \.(?:js|css|woff2?|ttf|svg|png|ico)$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        add_header X-Frame-Options "DENY" always;
+        add_header Content-Security-Policy "frame-ancestors 'none'" always;
+        add_header Strict-Transport-Security "max-age=31536000" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "no-referrer" always;
+        try_files $uri =404;
+    }
+
+    # Rutas de la SPA: siempre index.html (sin caché, para recoger cada despliegue).
+    location / {
+        add_header Cache-Control "no-cache";
+        add_header X-Frame-Options "DENY" always;
+        add_header Content-Security-Policy "frame-ancestors 'none'" always;
+        add_header Strict-Transport-Security "max-age=31536000" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "no-referrer" always;
+        try_files $uri $uri/ /index.html;
+    }
+}

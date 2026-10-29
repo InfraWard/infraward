@@ -1,0 +1,31 @@
+[
+  {
+    "hwaddr": "00:00:00:00:00:00",
+    "inet": "127.0.0.1/8",
+    "inet6": "::1/128",
+    "ip-addresses": [
+      { "ip-address": "127.0.0.1", "ip-address-type": "inet", "prefix": 8 },
+      { "ip-address": "::1", "ip-address-type": "inet6", "prefix": 128 }
+    ],
+    "name": "lo"
+  },
+  {
+    "hwaddr": "bc:24:11:aa:bb:cc",
+    "inet": "192.168.1.50/24",
+    "inet6": "fe80::be24:11ff:feaa:bbcc/64",
+    "ip-addresses": [
+      { "ip-address": "192.168.1.50", "ip-address-type": "inet", "prefix": 24 },
+      {
+        "ip-address": "2a0c:5a85:a004:cb00:be24:11ff:feaa:bbcc",
+        "ip-address-type": "inet6",
+        "prefix": 64
+      },
+      {
+        "ip-address": "fe80::be24:11ff:feaa:bbcc",
+        "ip-address-type": "inet6",
+        "prefix": 64
+      }
+    ],
+    "name": "eth0"
+  }
+]

@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <!--
+    CSP de la web (DESIGN §14). Angular (security.autoCsp) añade al compilar otra con el hash de
+    su cargador y 'strict-dynamic': un script inline solo se ejecuta si cumple las dos.
+    script-src 'unsafe-inline' solo es para `ng serve`: la build de producción lo sustituye por los
+    hashes de autoCsp (scripts/strict-csp.mjs).
+    style-src 'unsafe-inline': OptimusNG inyecta sus estilos en tiempo de ejecución.
+    frame-ancestors no vale en <meta>: lo pone el servidor web como cabecera.
+  -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
+  <title>InfraWard</title>
+  <base href="/">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0F172A">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="favicon.ico" sizes="any">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+</head>
+<body>
+  <app-root></app-root>
+</body>
+</html>

@@ -1,0 +1,3 @@
+{"id":"sha256:bf8527eb54c3680e728d5b4b383a8ba730d72dae7236fbc8dff97ed6b224a731","repoDigests":["alpine@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc"],"repoTags":["alpine:3.20"],"os":"linux","architecture":"amd64","size":7802737}
+{"id":"sha256:7705dd2858c100a95bba6140201b5c5315926c54d94a1577c6fa57876780d9ad","repoDigests":["redis@sha256:352c1fdadc91926edda08f45aeb3f27f37194c2f14101229c0523a11195c96e3"],"repoTags":["redis:7.0"],"os":"linux","architecture":"amd64","size":108694749}
+{"id":"sha256:e784f4560448b14a66f55c26e1b4dad2c2877cc73d001b7cd0b18e24a700a070","repoDigests":["nginx@sha256:a484819eb60211f5299034ac80f6a681b06f89e65866ce91f356ed7c72af059c"],"repoTags":["nginx:1.25"],"os":"linux","architecture":"amd64","size":187634551}

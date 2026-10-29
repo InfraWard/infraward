@@ -1,0 +1,225 @@
+.crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin: 0.5rem 0 1rem;
+  color: var(--p-text-muted-color);
+
+  a {
+    color: var(--p-primary-color);
+    text-decoration: none;
+  }
+}
+
+h1 {
+  margin: 0 0 1rem;
+  font-size: 1.6rem;
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  max-width: 48rem;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-end;
+
+  // Campos con ayuda debajo (host): se alinean por arriba, etiqueta con etiqueta.
+  &.top {
+    align-items: flex-start;
+  }
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+
+  &.grow {
+    flex: 1 1 18rem;
+  }
+
+  &.port {
+    width: 8rem;
+  }
+}
+
+.check {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+}
+
+.d-block,
+.block {
+  display: block;
+}
+
+.block {
+  margin: 1rem 0 0.35rem;
+}
+
+.muted {
+  color: var(--p-text-muted-color);
+}
+
+.error-text {
+  color: var(--p-app-danger-color);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+:host ::ng-deep .mb {
+  margin-bottom: 0.75rem;
+}
+
+:host ::ng-deep .steps {
+  margin-bottom: 1.5rem;
+
+  .p-step.done .p-step-number {
+    background: var(--p-primary-color);
+    color: var(--p-primary-contrast-color);
+    border-color: var(--p-primary-color);
+  }
+}
+
+.panel {
+  max-width: 64rem;
+}
+
+.command {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  margin: 0.5rem 0;
+
+  pre {
+    flex: 1;
+    margin: 0;
+    padding: 0.75rem 1rem;
+    border-radius: var(--p-border-radius-md, 6px);
+    background: var(--p-content-hover-background);
+    font-size: 0.85rem;
+    overflow-x: auto;
+    user-select: all;
+
+    &.wrap {
+      white-space: pre-wrap;
+      word-break: break-all;
+      max-height: 9rem;
+      overflow-y: auto;
+    }
+  }
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85rem;
+}
+
+.fingerprints {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.regenerate {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: center;
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--p-content-border-color);
+
+  .check {
+    align-items: center;
+  }
+}
+
+.jobs {
+  list-style: none;
+  padding: 0;
+  margin: 1rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  max-width: 40rem;
+
+  li {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+}
+
+.job-head {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.auth {
+  border: 1px solid var(--p-content-border-color);
+  border-radius: var(--p-content-border-radius, 6px);
+  padding: 0.75rem 1rem;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+
+  legend {
+    padding: 0 0.25rem;
+    font-weight: 600;
+  }
+}
+
+/* Organización y política del alta (QoL-6b), plegada por defecto. */
+.organize {
+  border: 1px solid var(--p-content-border-color);
+  border-radius: var(--p-content-border-radius, 6px);
+  padding: 0.6rem 0.9rem;
+  min-width: 0;
+
+  summary {
+    cursor: pointer;
+    font-weight: 600;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 0.6rem;
+    align-items: baseline;
+
+    small {
+      font-weight: 400;
+    }
+  }
+}
+
+.organize-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-top: 0.9rem;
+  min-width: 0;
+
+  .label {
+    font-weight: 600;
+  }
+}

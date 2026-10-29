@@ -1,0 +1,79 @@
+// Estilos de los widgets del panel (sin encapsular: los comparten los de widgets/), con prefijo dw-.
+app-widget-host { display: block; flex: 1; min-width: 0; height: 100%; }
+.dw {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  padding: 0.85rem 1rem;
+  border-radius: var(--p-content-border-radius, 6px);
+  background: var(--p-content-background);
+  border: 1px solid var(--p-content-border-color);
+  a { color: var(--p-primary-color); text-decoration: none; }
+}
+.dw-head { display: flex; flex-wrap: wrap; gap: 0.25rem 0.5rem; align-items: center; margin-bottom: 0.5rem; }
+.dw-title {
+  display: flex; gap: 0.4rem; align-items: center; flex: 1 1 auto; min-width: 0; margin: 0;
+  font-size: 1rem; font-weight: 600; color: var(--p-text-muted-color);
+  span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
+.dw-handle { cursor: grab; color: var(--p-text-muted-color); }
+.dw-chips {
+  display: flex; flex-wrap: wrap; gap: 0.25rem; margin: 0; padding: 0; list-style: none;
+  li {
+    display: inline-flex; gap: 0.25rem; align-items: center; padding: 0 0.45rem; font-size: 0.75rem;
+    border-radius: 999px; border: 1px solid var(--p-content-border-color); color: var(--p-text-muted-color);
+    &.warn { color: var(--p-app-warn-color); border-color: currentColor; }
+  }
+}
+.dw-body { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 0.35rem; }
+.dw-tile { display: flex; flex-direction: column; gap: 0.3rem; color: inherit !important; }
+.dw-value { font-size: 2.1rem; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; color: var(--p-text-color); }
+.dw-detail { display: flex; flex-wrap: wrap; gap: 0.25rem 0.75rem; font-size: 0.9rem; color: var(--p-text-color); }
+.dw-muted { color: var(--p-text-muted-color); font-size: 0.85rem; }
+.dw-critical { color: var(--p-app-danger-color); }
+.dw-high { color: var(--p-app-warn-color); }
+.dw-ok { display: flex; gap: 0.4rem; align-items: center; margin: 0; color: var(--p-text-muted-color); }
+.dw-error { margin: 0; color: var(--p-app-danger-color); }
+.dw-summary, .dw-meta { margin: 0; font-size: 0.9rem; }
+.dw-meta { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; color: var(--p-text-muted-color); font-size: 0.8rem; }
+.dw-badge {
+  display: inline-flex; gap: 0.25rem; align-items: center; padding: 0 0.4rem; border-radius: 4px;
+  border: 1px solid var(--p-content-border-color);
+  &.warn { color: var(--p-app-warn-color); }
+}
+.dw-more { display: inline-flex; gap: 0.35rem; margin-top: 0.4rem; font-size: 0.85rem; }
+.dw-counts, .dw-rows, .dw-vulns, .dw-sample { list-style: none; margin: 0; padding: 0; }
+.dw-counts {
+  a, .dw-static {
+    display: flex; gap: 0.6rem; align-items: center; padding: 0.4rem 0.2rem;
+    border-bottom: 1px solid var(--p-content-border-color); color: inherit;
+  }
+  span { flex: 1; }
+  strong { font-variant-numeric: tabular-nums; }
+  li:last-child a, li:last-child .dw-static { border-bottom: none; }
+}
+.dw-rows li {
+  display: flex; flex-wrap: wrap; gap: 0.25rem 0.6rem; align-items: center; padding: 0.4rem 0;
+  border-bottom: 1px solid var(--p-content-border-color);
+  &:last-child { border-bottom: none; }
+}
+.dw-grow { flex: 1; min-width: 6rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dw-when { margin-left: auto; font-size: 0.8rem; }
+.dw-vulns {
+  display: grid; gap: 0.55rem;
+  li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0.6rem; align-items: start; }
+}
+.dw-min { min-width: 0; }
+.dw-sample {
+  display: flex; flex-wrap: wrap; gap: 0.2rem 1rem; margin-top: 0.3rem; padding-left: 1.4rem; font-size: 0.85rem;
+}
+.dw-warning + .dw-warning { margin-top: 0.6rem; }
+.dw-warning-head { display: inline-flex; gap: 0.4rem; align-items: baseline; font-weight: 600; }
+.dw-warning.danger .dw-warning-head { color: var(--p-app-danger-color); }
+.dw-warning.info .dw-warning-head { color: var(--p-text-muted-color); font-weight: 500; }
+.dw-skel { margin-bottom: 0.4rem; }
+// Estrecho (una columna): la tarjeta no pasa de su alto y lo que sobra se desplaza dentro.
+@media (max-width: 767.98px) {
+  .board:not(.grid-stack) .dw { max-height: calc(var(--h) * var(--row) - 2 * var(--gap)); }
+}

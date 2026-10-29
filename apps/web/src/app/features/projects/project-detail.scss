@@ -1,0 +1,138 @@
+.back {
+  margin: 0.5rem 0 0.75rem;
+
+  a {
+    color: var(--p-primary-color);
+    text-decoration: none;
+  }
+}
+
+.head {
+  --project-color: var(--p-text-muted-color);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+  padding-left: 0.75rem;
+  border-left: 4px solid var(--project-color);
+
+  h1 {
+    margin: 0;
+    font-size: 1.6rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    overflow-wrap: anywhere;
+  }
+
+  .dot {
+    width: 0.8rem;
+    height: 0.8rem;
+    border-radius: 50%;
+    background: var(--project-color);
+    flex: none;
+  }
+
+  .actions {
+    display: flex;
+    gap: 0.5rem;
+  }
+}
+
+.description {
+  margin: 0.25rem 0 0;
+  overflow-wrap: anywhere;
+}
+
+.muted {
+  color: var(--p-text-muted-color);
+  margin: 0;
+}
+
+.small {
+  font-size: 0.85rem;
+}
+
+.columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr));
+  gap: 1rem;
+  align-items: start;
+}
+
+:host ::ng-deep .block .p-card-title {
+  font-size: 1rem;
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.members {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0;
+  display: grid;
+  gap: 0.25rem;
+
+  li {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+  }
+}
+
+h3 {
+  font-size: 0.95rem;
+  margin: 0.75rem 0 0.25rem;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.add-label {
+  display: block;
+  font-weight: 600;
+  margin: 0.75rem 0 0.35rem;
+}
+
+.opt {
+  display: inline-flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.35rem 1rem;
+  margin: 0.5rem 0 0.75rem;
+}
+
+dt {
+  font-weight: 600;
+}
+
+dd {
+  margin: 0;
+}
+
+:host ::ng-deep .mb {
+  margin-bottom: 0.75rem;
+}
+
+.project-panel {
+  margin: 0 0 1.25rem;
+  scroll-margin-top: 1rem;
+
+  h2 {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    margin: 0 0 0.25rem;
+    font-size: 1.15rem;
+  }
+}

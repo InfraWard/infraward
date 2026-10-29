@@ -1,0 +1,164 @@
+{
+  "facts": {
+    "machine_id": "eb57e19d4b83a685907fc4121c8af3a3",
+    "distribution": "Debian",
+    "distribution_version": "13.7",
+    "os_family": "Debian",
+    "kernel": "7.1.10-200.fc44.aarch64",
+    "architecture": "aarch64",
+    "system_vendor": "Libkrun",
+    "product_name": "libkrun Virtual Machine",
+    "product_uuid": "NA",
+    "product_serial": "NA",
+    "virtualization_type": "NA",
+    "virtualization_role": "NA",
+    "processor": ["0", "1", "2", "3"],
+    "processor_count": 4,
+    "processor_cores": 1,
+    "processor_vcpus": 4,
+    "memtotal_mb": 3608,
+    "swaptotal_mb": 0,
+    "hostname": "4e6badaf8940",
+    "fqdn": "4e6badaf8940",
+    "default_ipv4": {
+      "gateway": "10.88.0.1",
+      "interface": "eth0",
+      "address": "10.88.0.3",
+      "broadcast": "10.88.255.255",
+      "netmask": "255.255.0.0",
+      "network": "10.88.0.0",
+      "prefix": "16",
+      "macaddress": "f2:dd:9e:cb:d9:97",
+      "mtu": 1500,
+      "type": "ether",
+      "alias": "eth0"
+    },
+    "interfaces": ["eth0", "lo"],
+    "eth0": {
+      "device": "eth0",
+      "macaddress": "f2:dd:9e:cb:d9:97",
+      "mtu": 1500,
+      "active": true,
+      "type": "ether",
+      "speed": 10000,
+      "promisc": false,
+      "ipv4": {
+        "address": "10.88.0.3",
+        "broadcast": "10.88.255.255",
+        "netmask": "255.255.0.0",
+        "network": "10.88.0.0",
+        "prefix": "16"
+      },
+      "ipv6": [
+        {
+          "address": "fe80::f0dd:9eff:fecb:d997",
+          "prefix": "64",
+          "scope": "link"
+        }
+      ]
+    },
+    "lo": {
+      "device": "lo",
+      "mtu": 65536,
+      "active": true,
+      "type": "loopback",
+      "promisc": false,
+      "ipv4": {
+        "address": "127.0.0.1",
+        "broadcast": "",
+        "netmask": "255.0.0.0",
+        "network": "127.0.0.0",
+        "prefix": "8"
+      },
+      "ipv6": [
+        {
+          "address": "::1",
+          "prefix": "128",
+          "scope": "host"
+        }
+      ]
+    },
+    "mounts": [
+      {
+        "mount": "/",
+        "device": "/dev/vda1",
+        "fstype": "ext4",
+        "size_total": 21474836480,
+        "size_available": 10737418240,
+        "options": "rw"
+      }
+    ]
+  },
+  "packages": null,
+  "packagesError": "Could not detect a supported package manager from the following list: ['apk', 'apt', 'pacman', 'pkg', 'pkg_info', 'portage', 'rpm', 'dnf', 'dnf5', 'yum', 'zypper', 'pkg5', 'pkgng', 'openbsd_pkg'], or the required Python library is not installed. Check warnings for details.",
+  "nativePackages": [
+    "dpkg",
+    "adduser\t3.152\tall\tii ",
+    "apt\t3.0.3\tarm64\tii ",
+    "base-files\t13.8+deb13u7\tarm64\tii ",
+    "broken-pkg\t1.0\tamd64\trc "
+  ],
+  "services": {
+    "ssh.service": {
+      "name": "ssh.service",
+      "state": "running",
+      "status": "enabled",
+      "source": "systemd"
+    },
+    "cron.service": {
+      "name": "cron.service",
+      "state": "stopped",
+      "status": "disabled",
+      "source": "systemd"
+    }
+  },
+  "servicesError": null,
+  "which": ["ss=/usr/bin/ss", "dmidecode=/usr/sbin/dmidecode"],
+  "sudo": [
+    {
+      "item": {
+        "key": "pveversion",
+        "bin": "pveversion",
+        "argv": ["pveversion"]
+      },
+      "skipped": true
+    },
+    {
+      "item": {
+        "key": "plesk",
+        "bin": "plesk",
+        "argv": ["plesk", "version"]
+      },
+      "skipped": true
+    },
+    {
+      "item": {
+        "key": "docker",
+        "bin": "docker",
+        "argv": ["docker", "info", "--format", "{{.ServerVersion}}"]
+      },
+      "skipped": true
+    },
+    {
+      "item": {
+        "key": "ss",
+        "bin": "ss",
+        "argv": ["ss", "-Htulpn"]
+      },
+      "rc": 0,
+      "stdout": "tcp LISTEN 0      128    0.0.0.0:22 0.0.0.0:* users:((\"sshd\",pid=1,fd=6))\ntcp LISTEN 0      128       [::]:22    [::]:* users:((\"sshd\",pid=1,fd=7))",
+      "stderr": ""
+    },
+    {
+      "item": {
+        "key": "dmidecode",
+        "bin": "dmidecode",
+        "argv": ["dmidecode", "-t", "system"]
+      },
+      "rc": 0,
+      "stdout": "# dmidecode 3.6\n# No SMBIOS nor DMI entry point found, sorry.",
+      "stderr": ""
+    }
+  ],
+  "sudoersVersion": "4"
+}

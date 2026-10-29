@@ -1,0 +1,65 @@
+# OpenBao como proveedor de secretos (KV v2) y CA SSH (certificados de vida corta) del
+# despliegue de ejemplo. Se añade a compose.yml con COMPOSE_FILE (ver .env.example) y se prepara
+# con init.sh antes del primer `up`. Los secretos nuevos van a OpenBao; el proveedor local
+# sigue activo para leer los que ya existieran.
+services:
+  openbao:
+    image: quay.io/openbao/openbao:2.6.4
+    restart: unless-stopped
+    command: ["server", "-config=/openbao/config/config.hcl"]
+    volumes:
+      - ./openbao/config.hcl:/openbao/config/config.hcl:ro
+      - ./secrets/openbao/unseal.key:/openbao/unseal/unseal.key:ro
+      - ./data/openbao:/openbao/file
+    # Solo la red interna (init.sh le habla con `compose exec`).
+    networks: [backend]
+    healthcheck:
+      # 200 = inicializado y desellado; 501 = sin inicializar (lo hace init.sh).
+      test: ["CMD-SHELL", "wget -q -O /dev/null 'http://127.0.0.1:8200/v1/sys/health?uninitcode=200' || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    environment:
+      <<: &openbao
+        SECRETS_PROVIDERS: openbao,local
+        OPENBAO_ADDR: http://openbao:8200
+        OPENBAO_ROLE_ID: "${OPENBAO_ROLE_ID:?OPENBAO_ROLE_ID es obligatoria (la escribe init.sh)}"
+        OPENBAO_SECRET_ID_FILE: /run/secrets/openbao_secret_id
+      # Caja fuerte (QoL-7) en OpenBao, con su propia AppRole (política infraward-vault): solo
+      # la API la tiene; el worker no puede leer la caja fuerte.
+      VAULT_PROVIDER: openbao
+      VAULT_OPENBAO_ROLE_ID: "${VAULT_OPENBAO_ROLE_ID:?VAULT_OPENBAO_ROLE_ID es obligatoria (la escribe init.sh)}"
+      VAULT_OPENBAO_SECRET_ID_FILE: /run/secrets/openbao_vault_secret_id
+      VAULT_LOCAL_MASTER_KEY_FILE: ""
+      # Terminal (sesión 21): su propia AppRole (política infraward-terminal), la única que puede
+      # firmar con el rol de la terminal. Solo la API; ni el worker ni el gateway.
+      TERMINAL_OPENBAO_ROLE_ID: "${TERMINAL_OPENBAO_ROLE_ID:?TERMINAL_OPENBAO_ROLE_ID es obligatoria (la escribe init.sh)}"
+      TERMINAL_OPENBAO_SECRET_ID_FILE: /run/secrets/openbao_terminal_secret_id
+    secrets:
+      - openbao_secret_id
+      - openbao_vault_secret_id
+      - openbao_terminal_secret_id
+    depends_on:
+      openbao:
+        condition: service_healthy
+
+  worker:
+    environment: *openbao
+    secrets:
+      - openbao_secret_id
+    depends_on:
+      openbao:
+        condition: service_healthy
+
+secrets:
+  # Credencial de AppRole de la app (la crea init.sh; ./init.sh --rotate-secret-id la renueva).
+  openbao_secret_id:
+    file: ./secrets/openbao/secret-id
+  # AppRole de la caja fuerte (solo la API).
+  openbao_vault_secret_id:
+    file: ./secrets/openbao/vault-secret-id
+  # AppRole de la terminal (solo la API).
+  openbao_terminal_secret_id:
+    file: ./secrets/openbao/terminal-secret-id

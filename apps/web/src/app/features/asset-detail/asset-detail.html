@@ -1,0 +1,597 @@
+<p-breadcrumb [home]="home" [model]="crumbs()" styleClass="crumbs" aria-label="Ruta" />
+
+@switch (loaded().state) {
+  @case ('loading') {
+    <p-skeleton height="7rem" styleClass="mb" />
+    <p-skeleton height="20rem" />
+  }
+  @case ('error') {
+    @if (loaded(); as l) {
+      @if (l.state === 'error') {
+        <p-message severity="error" icon="bi bi-exclamation-triangle">{{ l.message }}</p-message>
+      }
+    }
+  }
+}
+
+<!-- Se recrea entero al cambiar de asset (p. ej. al seguir una relación): tablas y pestañas desde cero. -->
+@for (a of asset() ? [asset()!] : []; track a.id) {
+  <header class="head">
+    <app-asset-name [asset]="a" (changed)="refresh()" />
+    <div class="chips" data-head>
+      <p-tag [value]="typeLabels[a.type]" severity="contrast" />
+      <!-- Desaparecido o retirado: el último estado de ejecución que se vio ya no vale. -->
+      @if (a.status === 'missing' || a.status === 'retired' ? null : node()?.runtimeState; as rs) {
+        <p-tag
+          [value]="runtimeLabels[rs]"
+          [severity]="runtimeSeverity[rs]"
+          icon="bi {{ runtimeIcons[rs] }}"
+          [pTooltip]="'Estado de ejecución: ' + node()?.runtimeDetail"
+          data-runtime
+        />
+      }
+      @if (a.status !== 'active' || !node()?.runtimeState) {
+        <p-tag
+          [value]="statusLabels[a.status]"
+          [severity]="statusSeverity[a.status]"
+          pTooltip="Estado en el inventario"
+        />
+      }
+      @if (node()?.address; as address) {
+        <code class="address" data-address>{{ address }}</code>
+      }
+      @for (role of a.roles; track role) {
+        <p-tag [value]="role" severity="info" [rounded]="true" />
+      }
+      <app-tag-editor
+        [tags]="a.tags"
+        [editable]="auth.can('assets.write')"
+        [busy]="savingTags()"
+        (tagsChange)="saveTags(a, $event)"
+      />
+    </div>
+    @if (auth.can('assets.operate') || auth.can('assets.write') || auth.can('assets.purge')) {
+      <app-asset-actions
+        [asset]="a"
+        [runtimeState]="node()?.runtimeState ?? null"
+        [sudoersOutdated]="meta()?.sudoersOutdated ?? false"
+        [sshCaOutdated]="node()?.sshCaOutdated ?? false"
+        (changed)="refresh()"
+      >
+        <app-terminal-button [assetId]="a.id" />
+      </app-asset-actions>
+    } @else {
+      <div class="terminal-only"><app-terminal-button [assetId]="a.id" /></div>
+    }
+  </header>
+
+  @if (a.status === 'pending_enrollment') {
+    <p-message severity="info" icon="bi bi-hourglass-split" styleClass="mb">
+      <span>
+        Este servidor aún no se ha dado de alta.
+        <a [routerLink]="['/assets', a.id, 'enrollment']" data-action="continue-enrollment">Continuar el alta</a>
+      </span>
+    </p-message>
+  }
+
+  @if (a.status === 'missing') {
+    <p-message severity="warn" icon="bi bi-question-circle" styleClass="mb" data-warning="missing">
+      <span>
+        <strong>Desaparecido</strong>
+        @if (a.missingSince) {
+          desde el {{ a.missingSince | date: 'short' }}
+        }
+        @if (a.missingRuns) {
+          ({{ a.missingRuns }} {{ a.missingRuns === 1 ? 'ejecución' : 'ejecuciones' }} sin verlo)
+        }.
+        Si sigue sin aparecer en las próximas reconciliaciones pasará a retirado; no se borra nada.
+      </span>
+    </p-message>
+  }
+  @if (a.status === 'retired') {
+    <p-message severity="secondary" icon="bi bi-archive" styleClass="mb" data-warning="retired">
+      <span>
+        @if (a.retiredAuto) {
+          <strong>Retirado automáticamente</strong> tras no verse en varias reconciliaciones. Si
+          vuelve a aparecer, se reactiva solo. Su historial se conserva.
+        } @else {
+          <strong>Dado de baja.</strong> Su historial se conserva; aunque vuelva a aparecer, no se
+          reactiva.
+        }
+      </span>
+    </p-message>
+  }
+
+  @if (a.duplicateOf; as original) {
+    <p-message severity="warn" icon="bi bi-files" styleClass="mb" data-warning="duplicate">
+      <div class="duplicate">
+        <span>
+          Este servidor ya está en el inventario como
+          <a [routerLink]="['/assets', original.id]" data-duplicate-link>{{ original.name }}</a>
+          (mismo machine-id). Mientras sigan los dos, la recolección no guarda nada en este.
+        </span>
+        @if (auth.can('assets.purge')) {
+          <span class="duplicate-actions">
+            <p-button label="Purgar este" icon="bi bi-trash" size="small" severity="danger" [text]="true"
+              (onClick)="purgeAsset(a)" data-action="purge-self" />
+            <p-button label="Purgar {{ original.name }}" icon="bi bi-trash" size="small" severity="danger" [text]="true"
+              (onClick)="purgeAsset(original)" data-action="purge-original" />
+          </span>
+        }
+      </div>
+    </p-message>
+  }
+  @for (copy of a.duplicates ?? []; track copy.id) {
+    <p-message severity="warn" icon="bi bi-files" styleClass="mb" data-warning="duplicated-by">
+      <div class="duplicate">
+        <span>
+          Este servidor también aparece en el inventario como
+          <a [routerLink]="['/assets', copy.id]">{{ copy.name }}</a> (mismo machine-id).
+        </span>
+        @if (auth.can('assets.purge')) {
+          <span class="duplicate-actions">
+            <p-button label="Purgar este" icon="bi bi-trash" size="small" severity="danger" [text]="true"
+              (onClick)="purgeAsset(a)" />
+            <p-button label="Purgar {{ copy.name }}" icon="bi bi-trash" size="small" severity="danger" [text]="true"
+              (onClick)="purgeAsset(copy)" data-action="purge-duplicate" />
+          </span>
+        }
+      </div>
+    </p-message>
+  }
+
+  @if (node()?.sshCaOutdated) {
+    <p-message severity="warn" icon="bi bi-patch-exclamation" styleClass="mb" data-warning="ssh-ca">
+      <span>
+        CA SSH desactualizada: el servidor no confía exactamente en las CA vigentes (p. ej. durante una
+        rotación). Vuelve a ejecutar el script de alta para actualizarlas.
+        @if (auth.can('assets.write') && a.connection) {
+          <a href="" data-action="regenerate" (click)="regenerateCommand($event)">Generar el comando</a>
+        }
+      </span>
+    </p-message>
+  }
+
+  @if (meta(); as m) {
+    @if (m.sudoersOutdated) {
+      <p-message severity="warn" icon="bi bi-shield-exclamation" styleClass="mb" data-warning="sudoers">
+        <span>
+          Sudoers desactualizado (v{{ m.sudoersVersion }}): vuelve a ejecutar el script de alta para actualizarlo.
+          @if (auth.can('assets.write') && a.connection) {
+            <a href="" data-action="regenerate" (click)="regenerateCommand($event)">Generar el comando</a>
+          }
+        </span>
+      </p-message>
+    }
+    @if (sshdRisk(); as r) {
+      <p-message [severity]="r.rootPassword ? 'error' : 'warn'" icon="bi bi-unlock" styleClass="mb" data-warning="sshd">
+        <span>
+          @if (r.rootPassword) {
+            <strong>Root puede entrar por SSH con contraseña.</strong>
+            La contraseña de root (la de la caja fuerte) serviría también por SSH, no solo en la consola.
+          } @else if (r.rootLogin) {
+            <strong>sshd deja entrar a root</strong> (<code>PermitRootLogin yes</code>), aunque ahora solo con clave.
+          } @else {
+            <strong>sshd admite contraseñas</strong>: cualquier usuario con contraseña puede entrar por SSH.
+          }
+          Configuración efectiva (<code>sshd -T</code>):
+          <code>PermitRootLogin {{ r.sshd.permitRootLogin }}</code>,
+          <code>PasswordAuthentication {{ r.sshd.passwordAuthentication ? 'yes' : 'no' }}</code>@if (r.sshd.kbdInteractiveAuthentication) {,
+            <code>KbdInteractiveAuthentication yes</code>
+          }.
+          Recomendado: <code>PermitRootLogin prohibit-password</code> y <code>PasswordAuthentication no</code>
+          en un fichero de <code>/etc/ssh/sshd_config.d/</code> y recargar sshd. InfraWard solo lo lee: no cambia nada.
+        </span>
+      </p-message>
+    }
+    @if (m.machineIdClone; as clone) {
+      <p-message severity="warn" icon="bi bi-copy" styleClass="mb" data-warning="clone">
+        <span>
+          <strong>machine-id clonado:</strong> este servidor comparte el machine-id
+          <code>{{ clone.machineId }}</code> con
+          @for (other of clone.sharedWith; track other.id; let last = $last) {
+            <a [routerLink]="['/assets', other.id]">{{ other.name }}</a>{{ last ? '' : ', ' }}
+          }
+          (VM, CT o plantilla copiados). Es otra máquina (sus host keys son distintas) y se recoge con
+          normalidad, pero conviene regenerarlo en el servidor:
+          <code>rm /etc/machine-id &amp;&amp; systemd-machine-id-setup</code>
+          (y <code>/var/lib/dbus/machine-id</code> si no es un enlace) y volver a recogerlo.
+        </span>
+      </p-message>
+    }
+    @for (note of m.sudoersNotes ?? []; track note) {
+      <p-message severity="info" icon="bi bi-info-circle" styleClass="mb" data-note="sudoers">
+        <span>
+          {{ note }} (sudoers instalado: v{{ m.sudoersVersion }}).
+          @if (auth.can('assets.write') && a.connection) {
+            <a href="" data-action="regenerate" (click)="regenerateCommand($event)">Generar el comando</a>
+          }
+        </span>
+      </p-message>
+    }
+    @if (m.warnings.length) {
+      <p-message severity="warn" icon="bi bi-exclamation-triangle" styleClass="mb" data-warning="collection">
+        <div>
+          <strong>La última recolección fue parcial:</strong>
+          <ul class="warnings">
+            @for (w of m.warnings; track $index) {
+              <li>{{ w }}</li>
+            }
+          </ul>
+        </div>
+      </p-message>
+    }
+  }
+
+  <p-tabs [value]="shownTab()" (valueChange)="selectTab($event)" [lazy]="true" [scrollable]="true">
+    <p-tablist>
+      <p-tab value="overview"><i class="bi bi-card-text" aria-hidden="true"></i> Resumen</p-tab>
+      @if (hasFindings()) {
+        <p-tab value="findings"><i class="bi bi-shield-exclamation" aria-hidden="true"></i> Vulnerabilidades</p-tab>
+      }
+      @if (packages().length) {
+        <p-tab value="packages">Paquetes ({{ packages().length }})</p-tab>
+      }
+      @if (services().length) {
+        <p-tab value="services">Servicios ({{ services().length }})</p-tab>
+      }
+      @if (ports().length) {
+        <p-tab value="ports">Puertos ({{ ports().length }})</p-tab>
+      }
+      <p-tab value="relations">
+        <i class="bi bi-share" aria-hidden="true"></i> Relaciones
+        ({{ (relations()?.incoming?.length ?? 0) + (relations()?.outgoing?.length ?? 0) }})
+      </p-tab>
+      @if (hasCredentials()) {
+        <p-tab value="credentials" data-tab="credentials"><i class="bi bi-safe2" aria-hidden="true"></i> Credenciales</p-tab>
+      }
+      <p-tab value="snapshots"><i class="bi bi-clock-history" aria-hidden="true"></i> Snapshots</p-tab>
+      <p-tab value="raw"><i class="bi bi-braces" aria-hidden="true"></i> Datos en bruto</p-tab>
+    </p-tablist>
+
+    <p-tabpanels>
+      <p-tabpanel value="overview">
+        <ng-template #content>
+          @if (relations(); as r) {
+            <app-asset-overview
+              [asset]="a"
+              [relations]="r"
+              [ancestors]="ancestors()"
+              [node]="node()"
+              [docker]="docker()"
+              (openTab)="selectTab($event)"
+              (policyChanged)="refresh()"
+            />
+          }
+        </ng-template>
+      </p-tabpanel>
+
+      @if (hasCredentials()) {
+        <p-tabpanel value="credentials">
+          <ng-template #content>
+            <app-vault-entries [assetId]="a.id" [assetName]="a.name" [assetRoles]="a.roles" />
+          </ng-template>
+        </p-tabpanel>
+      }
+
+      <p-tabpanel value="packages">
+        <ng-template #content>
+          <p-table
+            #pkg
+            [value]="packages()"
+            [paginator]="true"
+            [rows]="25"
+            [rowsPerPageOptions]="[25, 50, 100]"
+            [globalFilterFields]="['name', 'version', 'manager']"
+            sortField="name"
+            size="small"
+          >
+            <ng-template #caption>
+              <p-iconfield>
+                <p-inputicon styleClass="bi bi-search" />
+                <input
+                  pInputText
+                  type="search"
+                  placeholder="Filtrar paquetes"
+                  aria-label="Filtrar paquetes"
+                  (input)="pkg.filterGlobal($any($event.target).value, 'contains')"
+                />
+              </p-iconfield>
+            </ng-template>
+            <ng-template #header>
+              <tr>
+                <th pSortableColumn="name">Nombre <p-sortIcon field="name" /></th>
+                <th pSortableColumn="version">Versión <p-sortIcon field="version" /></th>
+                <th>Arquitectura</th>
+                <th pSortableColumn="manager">Gestor <p-sortIcon field="manager" /></th>
+              </tr>
+            </ng-template>
+            <ng-template #body let-p>
+              <tr>
+                <td>{{ p.name }}</td>
+                <td><code>{{ p.version }}</code></td>
+                <td>{{ p.arch }}</td>
+                <td>{{ p.manager }}</td>
+              </tr>
+            </ng-template>
+          </p-table>
+        </ng-template>
+      </p-tabpanel>
+
+      <p-tabpanel value="services">
+        <ng-template #content>
+          <p-table
+            #svc
+            [value]="services()"
+            [paginator]="true"
+            [rows]="25"
+            [globalFilterFields]="['name', 'state', 'status']"
+            sortField="name"
+            size="small"
+          >
+            <ng-template #caption>
+              <p-iconfield>
+                <p-inputicon styleClass="bi bi-search" />
+                <input
+                  pInputText
+                  type="search"
+                  placeholder="Filtrar servicios"
+                  aria-label="Filtrar servicios"
+                  (input)="svc.filterGlobal($any($event.target).value, 'contains')"
+                />
+              </p-iconfield>
+            </ng-template>
+            <ng-template #header>
+              <tr>
+                <th pSortableColumn="name">Servicio <p-sortIcon field="name" /></th>
+                <th pSortableColumn="state">Estado <p-sortIcon field="state" /></th>
+                <th pSortableColumn="status">Arranque <p-sortIcon field="status" /></th>
+              </tr>
+            </ng-template>
+            <ng-template #body let-s>
+              <tr>
+                <td>{{ s.name }}</td>
+                <td>
+                  <p-tag [value]="s.state" [severity]="s.state === 'running' ? 'success' : 'secondary'" />
+                </td>
+                <td>{{ s.status }}</td>
+              </tr>
+            </ng-template>
+          </p-table>
+        </ng-template>
+      </p-tabpanel>
+
+      <p-tabpanel value="ports">
+        <ng-template #content>
+          <p-table [value]="ports()" sortField="port" size="small">
+            <ng-template #header>
+              <tr>
+                <th pSortableColumn="port">Puerto <p-sortIcon field="port" /></th>
+                <th pSortableColumn="proto">Protocolo <p-sortIcon field="proto" /></th>
+                <th>Dirección</th>
+                <th pSortableColumn="process">Proceso <p-sortIcon field="process" /></th>
+                <th>PID</th>
+              </tr>
+            </ng-template>
+            <ng-template #body let-p>
+              <tr>
+                <td>{{ p.port }}</td>
+                <td>{{ p.proto }}</td>
+                <td><code>{{ p.address }}</code></td>
+                <td>{{ p.process }}</td>
+                <td>{{ p.pid }}</td>
+              </tr>
+            </ng-template>
+          </p-table>
+        </ng-template>
+      </p-tabpanel>
+
+      @if (hasFindings()) {
+        <p-tabpanel value="findings">
+          <ng-template #content>
+            <app-asset-findings
+              [assetId]="a.id"
+              [assetName]="a.name"
+              [scanDisabled]="a.effectivePolicy?.values?.scanEnabled === false"
+            />
+          </ng-template>
+        </p-tabpanel>
+      }
+
+      <p-tabpanel value="relations">
+        <ng-template #content>
+          <div class="relations-bar">
+            <p-selectbutton
+              [options]="relationViews"
+              optionLabel="label"
+              optionValue="value"
+              [ngModel]="relationsView()"
+              (ngModelChange)="selectRelationsView($event)"
+              [allowEmpty]="false"
+              size="small"
+              aria-label="Vista de las relaciones"
+              data-relations-view
+            >
+              <ng-template #item let-o>
+                <i class="bi {{ o.icon }}" aria-hidden="true"></i> {{ o.label }}
+              </ng-template>
+            </p-selectbutton>
+            @if (node()?.children?.length || docker()?.volumes?.length || docker()?.networks?.length) {
+              <a
+                class="topology-link"
+                routerLink="/inventory"
+                [queryParams]="{ view: 'topology', root: a.id }"
+                data-topology-link
+              >
+                <i class="bi bi-bounding-box-circles" aria-hidden="true"></i> Ver su topología
+              </a>
+            }
+          </div>
+          @switch (relationsView()) {
+            @case ('map') {
+              <app-asset-relation-map
+                [assetId]="a.id"
+                [depth]="mapDepth()"
+                (depthChange)="selectMapDepth($event)"
+              />
+            }
+            @case ('hierarchy') {
+              @if (node(); as n) {
+                <app-asset-hierarchy [ancestors]="ancestors()" [node]="n" />
+              } @else {
+                <p class="muted">No se pudo cargar la jerarquía.</p>
+              }
+            }
+          }
+          @if (relationsView() === 'list' && relations(); as r) {
+            <h3>Salientes</h3>
+            <p-table [value]="r.outgoing" size="small">
+              <ng-template #header>
+                <tr>
+                  <th style="width: 12rem">Relación</th>
+                  <th>Asset</th>
+                  <th>Tipo</th>
+                  <th>Estado</th>
+                </tr>
+              </ng-template>
+              <ng-template #body let-rel>
+                <tr [attr.data-relation]="rel.type">
+                  <td>{{ a.name }} {{ relationLabels[rel.type] }}</td>
+                  <td>
+                    <a [routerLink]="['/assets', rel.peer.id]">
+                      <i class="bi {{ typeIcons[rel.peer.type] }}" aria-hidden="true"></i>
+                      {{ rel.peer.name }}
+                    </a>
+                  </td>
+                  <td>{{ typeLabels[rel.peer.type] }}</td>
+                  <td><p-tag [value]="statusLabels[rel.peer.status]" [severity]="statusSeverity[rel.peer.status]" /></td>
+                </tr>
+              </ng-template>
+              <ng-template #emptymessage>
+                <tr><td colspan="4" class="muted">Sin relaciones salientes.</td></tr>
+              </ng-template>
+            </p-table>
+
+            <h3>Entrantes</h3>
+            <p-table [value]="r.incoming" size="small">
+              <ng-template #header>
+                <tr>
+                  <th style="width: 12rem">Relación</th>
+                  <th>Asset</th>
+                  <th>Tipo</th>
+                  <th>Estado</th>
+                </tr>
+              </ng-template>
+              <ng-template #body let-rel>
+                <tr [attr.data-relation]="rel.type">
+                  <td>{{ incomingLabels[rel.type] }}</td>
+                  <td>
+                    <a [routerLink]="['/assets', rel.peer.id]">
+                      <i class="bi {{ typeIcons[rel.peer.type] }}" aria-hidden="true"></i>
+                      {{ rel.peer.name }}
+                    </a>
+                  </td>
+                  <td>{{ typeLabels[rel.peer.type] }}</td>
+                  <td><p-tag [value]="statusLabels[rel.peer.status]" [severity]="statusSeverity[rel.peer.status]" /></td>
+                </tr>
+              </ng-template>
+              <ng-template #emptymessage>
+                <tr><td colspan="4" class="muted">Sin relaciones entrantes.</td></tr>
+              </ng-template>
+            </p-table>
+          }
+        </ng-template>
+      </p-tabpanel>
+
+      <p-tabpanel value="snapshots">
+        <ng-template #content>
+          <div class="snapshots">
+            <p-table
+              [value]="snapshots()"
+              [lazy]="true"
+              [paginator]="true"
+              [rows]="snapshotPage"
+              [totalRecords]="snapshotTotal()"
+              [loading]="snapshotsLoading()"
+              selectionMode="single"
+              [selection]="selectedSummary()"
+              (selectionChange)="selectSnapshot($event)"
+              dataKey="id"
+              size="small"
+              (onLazyLoad)="loadSnapshots($event)"
+            >
+              <ng-template #header>
+                <tr>
+                  <th>Fecha</th>
+                  <th>Cambios</th>
+                </tr>
+              </ng-template>
+              <ng-template #body let-s>
+                <tr [pSelectableRow]="s" class="clickable" [attr.data-snapshot]="s.id">
+                  <td>
+                    {{ s.collectedAt | date: 'short' }}
+                    <div class="muted small">{{ snapshotSources[s.source] }}</div>
+                  </td>
+                  <td>
+                    @if (s.changeSummary; as summary) {
+                      <span class="chips">
+                        @for (c of summary; track c.section) {
+                          <p-tag [value]="sectionLabel(c.section) + ' ' + summaryText(c)" severity="secondary" />
+                        }
+                      </span>
+                    } @else if (!s.previousId) {
+                      <span class="muted small">Primero</span>
+                    } @else {
+                      <span class="muted small">—</span>
+                    }
+                  </td>
+                </tr>
+              </ng-template>
+              <ng-template #emptymessage>
+                <tr><td colspan="2" class="muted">Sin snapshots: aún no se ha recogido ni descubierto.</td></tr>
+              </ng-template>
+            </p-table>
+
+            <div class="snapshot-facts">
+              @if (selectedSummary(); as s) {
+                <h3>{{ snapshotSources[s.source] }} del {{ s.collectedAt | date: 'medium' }}</h3>
+                @if (s.jobId) {
+                  <p class="muted">Job <code>{{ s.jobId }}</code></p>
+                }
+                @if (selectedSnapshot(); as snap) {
+                  <app-snapshot-diff [diff]="snap.diff" [first]="!snap.previousId" />
+                  <p-panel
+                    header="Facts completos"
+                    [toggleable]="true"
+                    [collapsed]="true"
+                    styleClass="snapshot-raw"
+                    data-section="snapshot-facts"
+                  >
+                    <app-facts-viewer [value]="snap.facts" name="facts" />
+                  </p-panel>
+                } @else if (snapshotLoading()) {
+                  <p-skeleton height="10rem" />
+                }
+              } @else {
+                <p class="muted">
+                  Hay un snapshot por cada cambio real (no por cada recolección). Selecciona uno para ver
+                  qué cambió respecto al anterior.
+                </p>
+              }
+            </div>
+          </div>
+        </ng-template>
+      </p-tabpanel>
+
+      <p-tabpanel value="raw">
+        <ng-template #content>
+          @if (hasFacts()) {
+            <app-facts-viewer [value]="a.facts" name="facts" />
+          } @else {
+            <p class="muted">Este asset aún no tiene facts (no se ha recogido).</p>
+          }
+        </ng-template>
+      </p-tabpanel>
+    </p-tabpanels>
+  </p-tabs>
+}

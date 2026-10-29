@@ -1,0 +1,145 @@
+<nav class="back"><a routerLink="/projects"><i class="bi bi-arrow-left" aria-hidden="true"></i> Proyectos</a></nav>
+
+@if (error(); as message) {
+  <p-message severity="error" icon="bi bi-exclamation-triangle">{{ message }}</p-message>
+} @else if (project(); as p) {
+  <header class="head" [style.--project-color]="p.color">
+    <div>
+      <h1><span class="dot" aria-hidden="true"></span> {{ p.name }}</h1>
+      @if (p.description) {
+        <p class="muted description">{{ p.description }}</p>
+      }
+    </div>
+    @if (auth.can('projects.write')) {
+      <div class="actions">
+        <p-button label="Editar" icon="bi bi-pencil" severity="secondary" [outlined]="true" (onClick)="editing.set(true)" data-action="edit-project" />
+        <p-button label="Borrar" icon="bi bi-trash" severity="danger" [text]="true" (onClick)="confirmDelete()" data-action="delete-project" />
+      </div>
+    }
+  </header>
+
+  <section class="project-panel" id="panel" aria-labelledby="project-panel-title" data-block="project-dashboard">
+    <h2 id="project-panel-title"><i class="bi bi-speedometer2" aria-hidden="true"></i> Panel del proyecto</h2>
+    <app-dashboard-board [project]="p.id" [canEdit]="auth.can('projects.write')" />
+  </section>
+
+  <div class="columns">
+    <p-card styleClass="block" data-block="members">
+      <ng-template #title><i class="bi bi-collection" aria-hidden="true"></i> Qué entra</ng-template>
+      <p class="muted small">
+        Cada asset entra con todo lo que contiene (CT, contenedores, volúmenes, redes y las imágenes
+        que usan). Las excepciones sacan un asset y lo que contiene.
+      </p>
+      @if (included().length) {
+        <ul class="members">
+          @for (m of included(); track m.asset.id) {
+            <li [attr.data-member]="m.asset.name">
+              <i class="bi {{ typeIcons[m.asset.type] }}" aria-hidden="true"></i>
+              <a [routerLink]="['/assets', m.asset.id]">{{ m.asset.name }}</a>
+              <span class="muted small">{{ typeLabels[m.asset.type] }}</span>
+              @if (auth.can('projects.write')) {
+                <span class="spacer"></span>
+                <p-button label="Quitar" severity="secondary" [text]="true" size="small" [disabled]="busy()" (onClick)="remove(m)" data-action="remove-member" />
+              }
+            </li>
+          }
+        </ul>
+      } @else {
+        <p class="muted">Aún no tiene assets.</p>
+      }
+      @if (excluded().length) {
+        <h3>Excepciones</h3>
+        <ul class="members">
+          @for (m of excluded(); track m.asset.id) {
+            <li [attr.data-excluded]="m.asset.name">
+              <i class="bi bi-slash-circle" aria-hidden="true"></i>
+              <a [routerLink]="['/assets', m.asset.id]">{{ m.asset.name }}</a>
+              <span class="muted small">{{ typeLabels[m.asset.type] }}</span>
+              @if (auth.can('projects.write')) {
+                <span class="spacer"></span>
+                <p-button label="Quitar la excepción" severity="secondary" [text]="true" size="small" [disabled]="busy()" (onClick)="remove(m)" data-action="remove-exclusion" />
+              }
+            </li>
+          }
+        </ul>
+      }
+      @if (auth.can('projects.write')) {
+        <label class="add-label" for="project-add-asset">Añadir un asset</label>
+        <p-autocomplete
+          inputId="project-add-asset"
+          [ngModel]="search()"
+          (ngModelChange)="search.set($event)"
+          [suggestions]="suggestions()"
+          (completeMethod)="complete($event)"
+          (onSelect)="add($any($event.value))"
+          optionLabel="name"
+          [delay]="200"
+          [minLength]="1"
+          placeholder="Busca por nombre (p. ej. el nodo Proxmox)"
+          [fluid]="true"
+          appendTo="body"
+          data-add-asset
+        >
+          <ng-template #item let-a>
+            <span class="opt" [attr.data-option]="a.name">
+              <i class="bi {{ typeIcons[a.type] }}" aria-hidden="true"></i>
+              {{ a.name }} <span class="muted small">{{ typeLabels[a.type] }}</span>
+            </span>
+          </ng-template>
+        </p-autocomplete>
+      }
+    </p-card>
+
+    <p-card styleClass="block" data-block="policy">
+      <ng-template #title><i class="bi bi-sliders" aria-hidden="true"></i> Política del proyecto</ng-template>
+      <p class="muted small">
+        Se aplica a sus assets salvo que tengan regla propia, de un nodo superior o de una etiqueta
+        (la etiqueta gana al proyecto; entre proyectos, la más restrictiva).
+      </p>
+      @if (rule(); as r) {
+        <dl>
+          @for (f of fields; track f) {
+            <dt>{{ fieldLabels[f] }}</dt>
+            <dd [attr.data-field]="f">{{ valueLabel(f, r[f]) }}</dd>
+          }
+        </dl>
+      } @else {
+        <p class="muted">Sin regla: sus assets siguen la política que ya tenían.</p>
+      }
+      @if (auth.can('policy.write')) {
+        <p-button
+          [label]="rule() ? 'Cambiar la regla' : 'Fijar una regla'"
+          icon="bi bi-sliders"
+          severity="secondary"
+          [outlined]="true"
+          size="small"
+          (onClick)="openRule()"
+          data-action="project-rule"
+        />
+      }
+    </p-card>
+  </div>
+
+  <app-project-dialog [(visible)]="editing" [project]="p" (saved)="edited()" />
+
+  <p-dialog
+    header="Regla del proyecto"
+    [visible]="ruleDialog()"
+    (visibleChange)="ruleDialog.set($event)"
+    [modal]="true"
+    [style]="{ width: 'min(34rem, 95vw)' }"
+    data-dialog="project-rule"
+  >
+    <app-policy-form [(value)]="draft" [allowInherit]="true" id="project-rule" />
+    <ng-template #footer>
+      @if (rule()) {
+        <p-button label="Quitar la regla" severity="danger" [text]="true" [disabled]="busy()" (onClick)="removeRule()" />
+      }
+      <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="ruleDialog.set(false)" />
+      <p-button label="Guardar" icon="bi bi-check-lg" [loading]="busy()" (onClick)="saveRule()" data-action="save-project-rule" />
+    </ng-template>
+  </p-dialog>
+} @else {
+  <p-skeleton height="6rem" styleClass="mb" />
+  <p-skeleton height="16rem" />
+}

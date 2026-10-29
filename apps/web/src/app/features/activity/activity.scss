@@ -1,0 +1,51 @@
+:host ::ng-deep .activity-table {
+  min-width: 58rem;
+}
+
+.head-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.worker {
+  display: inline-flex;
+  gap: 0.3rem;
+  align-items: center;
+  font-size: 0.85rem;
+}
+
+:host ::ng-deep .pre-line .p-tooltip-text {
+  white-space: pre-line;
+}
+
+.job,
+.asset {
+  display: inline-flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.asset {
+  color: var(--p-primary-color);
+  text-decoration: none;
+}
+
+:host ::ng-deep .progress {
+  height: 0.4rem;
+  margin-top: 0.35rem;
+}
+
+.detail {
+  font-size: 0.85rem;
+  margin-top: 0.25rem;
+}
+
+.error {
+  color: var(--p-app-danger-color);
+}
+
+:host ::ng-deep .mb {
+  margin-bottom: 0.75rem;
+}

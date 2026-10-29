@@ -1,0 +1,19 @@
+# Contexto de `docker build`: solo fuentes; dependencias y compilados se generan en la imagen.
+**/node_modules
+**/dist
+**/.angular
+**/coverage
+**/*.tsbuildinfo
+.pnpm-store
+.git
+.gitlab-ci.yml
+.vscode
+.idea
+**/.env
+deploy/.env
+deploy/secrets
+**/*.key
+**/__pycache__
+**/*.log
+.DS_Store
+docs

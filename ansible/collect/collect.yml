@@ -1,0 +1,174 @@
+# Recolección de un servidor (docs/DESIGN.md §8). SOLO LECTURA.
+#
+# - Sin `become`: el sudoers de `inventory` solo permite el ayudante de root y `become` ejecuta
+#   `sudo /bin/sh -c …`. Lo que necesita root se pide al ayudante por el nombre de la consulta:
+#   `sudo -n /usr/local/libexec/infraward/infraward-query <consulta>` (sudoers v4; la lista
+#   cerrada de consultas está en packages/connectors/src/privileged.ts y un test exige que
+#   `query` y `argv` de cada elemento coincidan con ella).
+# - Si sudo deniega algo (alta manual o sudoers antiguo) la tarea no falla: el worker lo anota
+#   como recolección parcial.
+# - Ninguna variable contiene secretos: la clave privada es un fichero 600 en tmpfs que el worker
+#   pasa por su ruta en el inventario.
+# - La salida es un JSON (`infraward_output`) escrito en el tmpfs del job; el worker lo normaliza.
+# - Un CT de Proxmox se recoge con la conexión `infraward_pct` (connection_plugins/): desde el nodo
+#   con `pct exec`, que ya es root dentro del CT. Entonces `infraward_via` es `pct`,
+#   `infraward_query_prefix` va vacío (se ejecuta el comando real, `argv`) y no se mira el
+#   sudoers (el CT no tiene usuario ni ayudante de InfraWard).
+- name: Recolección de InfraWard
+  hosts: target
+  gather_facts: false
+  any_errors_fatal: true
+  vars:
+    infraward_via: ssh
+    infraward_nginx_filter: 'exit 3'
+    infraward_process_filter: 'exit 3'
+    infraward_sshd_filter: 'exit 3'
+    infraward_query_prefix: [sudo, -n, /usr/local/libexec/infraward/infraward-query]
+  tasks:
+    - name: Facts del sistema (sin root)
+      ansible.builtin.setup:
+        gather_timeout: 30
+
+    - name: Paquetes instalados
+      ansible.builtin.package_facts:
+        manager: auto
+      failed_when: false
+      register: infraward_packages
+
+    # package_facts con apt necesita python3-apt, que no suele estar instalado: alternativa de
+    # solo lectura con el gestor nativo (nombre, versión y arquitectura separados por tabuladores).
+    - name: Paquetes con el gestor nativo
+      ansible.builtin.shell: |
+        if command -v dpkg-query >/dev/null 2>&1; then
+          echo dpkg; dpkg-query -W -f='${binary:Package}\t${Version}\t${Architecture}\t${db:Status-Abbrev}\n'
+        elif command -v rpm >/dev/null 2>&1; then
+          echo rpm; rpm -qa --qf '%{NAME}\t%{EPOCHNUM}:%{VERSION}-%{RELEASE}\t%{ARCH}\tii\n'
+        elif command -v apk >/dev/null 2>&1; then
+          echo apk; apk info -v 2>/dev/null
+        fi
+        exit 0
+      when: ansible_facts.packages is not defined
+      changed_when: false
+      register: infraward_native_packages
+
+    - name: Servicios
+      ansible.builtin.service_facts:
+      failed_when: false
+      register: infraward_services
+
+    - name: Binarios presentes
+      ansible.builtin.shell: |
+        PATH=$PATH:/usr/local/sbin:/usr/sbin:/sbin
+        for c in pveversion plesk docker ss netstat dmidecode nginx sh; do
+          p=$(command -v "$c" 2>/dev/null) && printf '%s=%s\n' "$c" "$p"
+        done
+        exit 0
+      changed_when: false
+      register: infraward_which
+
+    # `query`: consulta del ayudante (por SSH); `argv`: el comando real que ejecuta (en un CT).
+    - name: Consultas al ayudante de root
+      ansible.builtin.command:
+        argv: "{{ (infraward_query_prefix + [item.query]) if infraward_query_prefix else item.argv }}"
+      loop:
+        - { key: pveversion, bin: pveversion, query: pveversion, argv: [pveversion] }
+        - { key: plesk, bin: plesk, query: plesk-version, argv: [plesk, version] }
+        - { key: docker, bin: docker, query: docker-version, argv: [docker, info, --format, "{% raw %}{{.ServerVersion}}{% endraw %}"] }
+        - { key: ss, bin: ss, query: ss, argv: [ss, -Htulpn] }
+        - { key: dmidecode, bin: dmidecode, query: dmidecode-system, argv: [dmidecode, -t, system] }
+        # v5: rutas de nginx; el filtro (lo pasa el worker en `infraward_nginx_filter`) corre en el
+        # servidor o en el CT y solo deja salir nombres, listen y destinos.
+        - { key: nginx, bin: nginx, query: nginx-routes, argv: [sh, -c, "{{ infraward_nginx_filter }}", sh, nginx, -T] }
+        # v6: paquetes de los procesos en marcha (el script lo pasa el worker en
+        # `infraward_process_filter`); solo salen nombres de procesos, unidades y paquetes.
+        - { key: processes, bin: sh, query: process-packages, argv: [sh, -c, "{{ infraward_process_filter }}", sh] }
+        # v7: autenticación efectiva de sshd (`sshd -T`, el script lo pasa el worker en
+        # `infraward_sshd_filter`); solo salen PermitRootLogin, PasswordAuthentication y
+        # KbdInteractiveAuthentication. Solo lee: no toca la configuración.
+        - { key: sshd, bin: sh, query: sshd-auth, argv: [sh, -c, "{{ infraward_sshd_filter }}", sh] }
+      loop_control:
+        label: "{{ item.key }}"
+      # En un CT, dmidecode leería (o no) el hardware del nodo: no aporta nada.
+      when: >-
+        (item.bin ~ '=') in infraward_which.stdout
+        and not (infraward_via == 'pct' and item.key == 'dmidecode')
+      changed_when: false
+      failed_when: false
+      register: infraward_sudo
+
+    # Sin `ss` (Alpine y otras imágenes con BusyBox): `netstat -tulpn` sin sudo (no está en el
+    # sudoers; en un CT ya se es root) y, si tampoco hay o falla, las tablas de /proc/net (sin
+    # proceso, pero no necesitan nada instalado).
+    - name: Puertos con netstat (sin ss)
+      ansible.builtin.command:
+        argv: [netstat, -tulpn]
+      when: >-
+        'ss=' not in infraward_which.stdout
+        and 'netstat=' in infraward_which.stdout
+      changed_when: false
+      failed_when: false
+      register: infraward_netstat
+
+    - name: Puertos desde /proc/net (sin ss ni netstat)
+      ansible.builtin.shell: |
+        for f in tcp tcp6 udp udp6; do
+          [ -r "/proc/net/$f" ] && { echo "# $f"; cat "/proc/net/$f"; }
+        done
+        exit 0
+      when: >-
+        'ss=' not in infraward_which.stdout
+        and (infraward_netstat.rc | default(1)) != 0
+      changed_when: false
+      register: infraward_procnet
+
+    - name: Versión del sudoers de InfraWard
+      ansible.builtin.command:
+        argv: [cat, /etc/infraward/sudoers-version]
+      when: infraward_via != 'pct'
+      changed_when: false
+      failed_when: false
+      register: infraward_sudoers
+
+    # Modo CA: claves de la CA SSH en las que confía sshd (fichero público, sin sudo). Sirve
+    # para avisar de «CA SSH desactualizada» durante una rotación.
+    - name: CA SSH de InfraWard instalada
+      ansible.builtin.command:
+        argv: [cat, /etc/ssh/infraward/trusted_user_ca_keys]
+      when: infraward_via != 'pct'
+      changed_when: false
+      failed_when: false
+      register: infraward_ssh_ca
+
+    - name: Resultado en JSON para el worker
+      ansible.builtin.copy:
+        dest: "{{ infraward_output }}"
+        mode: "0600"
+        # `env` fuera: el entorno de la sesión remota no es inventario y podría llevar datos
+        # sensibles. Paquetes y servicios van aparte.
+        content: >-
+          {{ {
+            'facts': ansible_facts | dict2items
+              | rejectattr('key', 'in', ['packages', 'services', 'env'])
+              | items2dict,
+            'packages': ansible_facts.packages | default(none),
+            'packagesError': infraward_packages.msg | default(none),
+            'nativePackages': infraward_native_packages.stdout_lines | default(none),
+            'services': ansible_facts.services | default(none),
+            'servicesError': infraward_services.msg | default(none),
+            'which': infraward_which.stdout_lines,
+            'sudo': infraward_sudo.results,
+            'netstat': {
+              'rc': infraward_netstat.rc,
+              'stdout': infraward_netstat.stdout,
+              'stderr': infraward_netstat.stderr,
+            } if infraward_netstat.rc is defined else none,
+            'procNet': infraward_procnet.stdout | default(none),
+            'sudoersVersion': infraward_sudoers.stdout | default(''),
+            'sshCaKeys': infraward_ssh_ca.stdout
+              if (infraward_ssh_ca.rc | default(1)) == 0 else '',
+            'via': infraward_via,
+          } | to_json }}
+      delegate_to: localhost
+      vars:
+        ansible_connection: local
+        ansible_python_interpreter: "{{ ansible_playbook_python }}"

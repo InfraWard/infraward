@@ -1,0 +1,16 @@
+{
+  "boot": "order=scsi0",
+  "cipassword": "$5$abc$hash",
+  "ciuser": "admin",
+  "cores": 4,
+  "memory": "4096",
+  "name": "win",
+  "net0": "virtio=BC:24:11:00:00:01,bridge=vmbr0",
+  "ostype": "l26",
+  "scsi0": "local-lvm:vm-200-disk-0,size=32G",
+  "sshkeys": "ssh-ed25519%20AAAA",
+  "smbios1": "uuid=1234",
+  "vmgenid": "abcd",
+  "agent": "1",
+  "meta": { "x": 1 }
+}

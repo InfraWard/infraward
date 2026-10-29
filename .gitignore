@@ -1,0 +1,29 @@
+node_modules/
+dist/
+.angular/
+coverage/
+.env
+# Copias y variantes locales (.env.bak, .env.local…); solo se versionan los .env.example.
+.env.*
+!.env.example
+!.env.gateway.example
+deploy/.env
+*.log
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+*.tsbuildinfo
+
+# Claves fuera de git (clave maestra local de secretos en desarrollo)
+deploy/secrets/
+deploy/example/secrets/
+deploy/example/data/
+*.key
+
+# Python (plugins de Ansible)
+__pycache__/
+*.pyc
+.sonar/
+
+# Instrucciones locales para Claude Code (importa AGENTS.md); no se versionan.
+CLAUDE.md

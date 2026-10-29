@@ -1,0 +1,3 @@
+{"id": 1, "name": "wp_ejemplo", "type": "mysql", "domain": 1, "host": "localhost", "port": 3306}
+{"id": 2, "name": "blog_db", "type": "mysql", "domain": 2, "host": "localhost", "port": 3306}
+{"id": 3, "name": "tienda", "type": "postgresql", "domain": 4, "host": "localhost", "port": 5432}

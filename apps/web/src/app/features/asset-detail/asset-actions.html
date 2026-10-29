@@ -1,0 +1,125 @@
+<div class="actions" data-actions>
+  @for (action of mainActions(); track action.id) {
+    @let reason = disabledReason(action.id, action.disabledReason);
+    <span [pTooltip]="reason ?? undefined" tooltipPosition="bottom">
+      <p-button
+        [label]="labels[action.id].label"
+        icon="bi {{ labels[action.id].icon }}"
+        size="small"
+        [severity]="action.id === 'retire' || action.id === 'purge' ? 'danger' : 'secondary'"
+        [outlined]="action.id === 'collect' || action.id === 'scan'"
+        [text]="action.id !== 'collect' && action.id !== 'scan'"
+        [disabled]="!!reason || pending() !== null"
+        [loading]="pending() === action.id"
+        [attr.data-action]="action.id"
+        (onClick)="run(action.id)"
+      />
+    </span>
+  }
+  <!-- «Abrir terminal» (lo pone la ficha), con las demás acciones. -->
+  <ng-content />
+  @if (dangerActions().length) {
+    <span class="spacer"></span>
+  }
+  @for (action of dangerActions(); track action.id) {
+    @let reason = disabledReason(action.id, action.disabledReason);
+    <span [pTooltip]="reason ?? undefined" tooltipPosition="bottom">
+      <p-button
+        [label]="labels[action.id].label"
+        icon="bi {{ labels[action.id].icon }}"
+        size="small"
+        [severity]="action.id === 'retire' || action.id === 'purge' ? 'danger' : 'secondary'"
+        [outlined]="action.id === 'collect' || action.id === 'scan'"
+        [text]="action.id !== 'collect' && action.id !== 'scan'"
+        [disabled]="!!reason || pending() !== null"
+        [loading]="pending() === action.id"
+        [attr.data-action]="action.id"
+        (onClick)="run(action.id)"
+      />
+    </span>
+  }
+</div>
+
+@if (running(); as runs) {
+  @if (runs.length) {
+    <p-message severity="info" icon="bi bi-arrow-repeat" styleClass="running" data-running-job>
+      <div class="running-body">
+        @for (run of runs.slice(0, 3); track run.id) {
+          <div class="run">
+            <strong>{{ jobLabels[run.name] }}</strong> {{ runText(run) }}
+            @if (run.assetId !== asset().id && run.assetName) {
+              <span class="text-muted">({{ run.assetName }})</span>
+            }
+          </div>
+          @if (run.state === 'active') {
+            <p-progressbar [value]="run.progress" [showValue]="false" styleClass="bar" />
+          }
+        }
+        <a routerLink="/activity" [queryParams]="{ assetId: asset().id }">Ver en Actividad</a>
+      </div>
+    </p-message>
+  }
+}
+
+@if (error(); as message) {
+  <p-message severity="error" icon="bi bi-exclamation-triangle" styleClass="running" data-action-error>{{ message }}</p-message>
+}
+
+<p-dialog
+  header="Purgar {{ purgeTarget()?.name }}"
+  [visible]="purgeOpen()"
+  (visibleChange)="purgeOpen.set($event)"
+  [modal]="true"
+  [style]="{ width: 'min(32rem, 95vw)' }"
+  data-dialog="purge"
+>
+  <p>
+    Se borran <strong>para siempre</strong> el asset, todo lo que contiene, sus relaciones,
+    snapshots y findings. Si solo quieres dejar de verlo, dalo de baja.
+  </p>
+  <label for="purgeName">Escribe <code>{{ purgeTarget()?.name }}</code> para confirmar:</label>
+  <input
+    pInputText
+    id="purgeName"
+    class="confirm-input"
+    autocomplete="off"
+    [ngModel]="purgeName()"
+    (ngModelChange)="purgeName.set($event)"
+    (keydown.enter)="purge()"
+  />
+  <ng-template #footer>
+    <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="purgeOpen.set(false)" />
+    <p-button
+      label="Purgar"
+      icon="bi bi-trash"
+      severity="danger"
+      [disabled]="!purgeMatches()"
+      (onClick)="purge()"
+      data-action="confirm-purge"
+    />
+  </ng-template>
+</p-dialog>
+
+<p-dialog
+  header="Quitar el acceso de InfraWard"
+  [visible]="revocations().length > 0"
+  (visibleChange)="$event || closeRevocations()"
+  [modal]="true"
+  [closable]="true"
+  [style]="{ width: 'min(44rem, 95vw)' }"
+  data-dialog="revocations"
+>
+  <p>Ejecuta esto en cada servidor para borrar el usuario y la clave de InfraWard:</p>
+  @for (r of revocations(); track r.assetId) {
+    <div class="revocation">
+      <pre><code>{{ r.command }}</code></pre>
+      <p-button icon="bi bi-clipboard" [text]="true" severity="secondary" ariaLabel="Copiar el comando" (onClick)="copy(r.command)" />
+    </div>
+    @if (!r.secretRemoved) {
+      <p class="text-muted small">La clave privada no se pudo borrar del proveedor de secretos.</p>
+    }
+  }
+  <ng-template #footer>
+    <p-button label="Hecho" (onClick)="closeRevocations()" />
+  </ng-template>
+</p-dialog>

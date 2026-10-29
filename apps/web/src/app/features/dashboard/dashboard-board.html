@@ -1,0 +1,82 @@
+<div class="toolbar" [class.editing]="editing()">
+  @if (!editing()) {
+    @if (doc(); as d) {
+      <span class="state" data-dashboard-state>
+        @if (d.isDefault) {
+          {{ project() ? 'Plantilla del proyecto' : 'Panel por defecto' }}
+        } @else {
+          Personalizado@if (d.updatedBy && project()) { · por {{ d.updatedBy }} }
+        }
+      </span>
+    }
+    @if (canEdit() && doc()) {
+      <p-button label="Personalizar" icon="bi bi-pencil-square" severity="secondary" [outlined]="true" size="small"
+        (onClick)="startEdit()" data-action="customize" />
+    }
+  } @else {
+    <span class="hint">
+      @if (wide()) {
+        Arrastra un widget por <i class="bi bi-grip-vertical" aria-hidden="true"></i> y cambia su tamaño desde la esquina; <i class="bi bi-three-dots-vertical" aria-hidden="true"></i> para configurarlo o moverlo con el teclado.
+      } @else {
+        Usa <i class="bi bi-three-dots-vertical" aria-hidden="true"></i> en cada widget para moverlo, cambiar su tamaño, configurarlo o quitarlo.
+      }
+    </span>
+    <p-button label="Añadir widget" icon="bi bi-plus-lg" severity="secondary" size="small" [disabled]="full()"
+      (onClick)="catalogOpen.set(true)" data-action="add-widget" />
+    @if (!doc()?.isDefault) {
+      <p-button [label]="project() ? 'Volver a la plantilla' : 'Restablecer'" icon="bi bi-arrow-counterclockwise" severity="danger"
+        [text]="true" size="small" (onClick)="reset()" data-action="reset-dashboard" />
+    }
+    <p-button label="Cancelar" severity="secondary" [text]="true" size="small" (onClick)="cancel()" data-action="cancel-edit" />
+    <p-button label="Guardar" icon="bi bi-check-lg" size="small" [loading]="saving()" (onClick)="save()" data-action="save-dashboard" />
+  }
+</div>
+
+@if (saveError(); as e) {
+  <p-message severity="error" icon="bi bi-exclamation-triangle" styleClass="board-message">
+    {{ e }}
+    <p-button label="Recargar el panel" [text]="true" size="small" (onClick)="reload()" />
+  </p-message>
+}
+
+@if (loadError(); as e) {
+  <p-message severity="error" icon="bi bi-exclamation-triangle">{{ e }}</p-message>
+} @else if (!doc()) {
+  <div class="loading">
+    <p-skeleton height="8rem" />
+    <p-skeleton height="8rem" />
+    <p-skeleton height="8rem" />
+  </div>
+} @else {
+  @if (widgets().length === 0) {
+    <p class="empty">
+      Este panel no tiene widgets.
+      @if (editing()) { Añade alguno con «Añadir widget». }
+    </p>
+  }
+  <!-- Al salir de la edición, el contenedor se crea de nuevo: gridstack deja clases y estilos en línea. -->
+  @for (e of [epoch()]; track e) {
+    <div #board class="board" [class.grid-stack]="editing() && wide()" [class.editing]="editing()"
+      [style.--rows]="rows()" [style.--row]="rowPx + 'px'" [style.--gap]="marginPx + 'px'" data-dashboard>
+      @for (w of widgets(); track w.id; let first = $first, last = $last) {
+        <div class="grid-stack-item cell" [attr.gs-id]="w.id" [attr.gs-x]="w.x" [attr.gs-y]="w.y" [attr.gs-w]="w.w" [attr.gs-h]="w.h"
+          [attr.gs-min-w]="minSize(w).w" [attr.gs-min-h]="minSize(w).h" [attr.gs-max-h]="maxHeight"
+          [style.grid-column]="w.x + 1 + ' / span ' + w.w" [style.grid-row]="w.y + 1 + ' / span ' + w.h"
+          [style.--h]="w.h">
+          <div class="grid-stack-item-content">
+            @defer (on viewport) {
+              <app-widget-host [widget]="w" [project]="override()" [locked]="!!project()" [editing]="editing()"
+                [first]="first" [last]="last" (action)="onAction(w, $event)" />
+            } @placeholder {
+              <div class="placeholder" aria-hidden="true"></div>
+            }
+          </div>
+        </div>
+      }
+    </div>
+  }
+}
+
+<app-widget-catalog [visible]="catalogOpen()" (picked)="add($event)" (closed)="catalogOpen.set(false)" />
+<app-widget-config [widget]="configuring()?.widget ?? null" [adding]="configuring()?.adding ?? false" [lockedProject]="project()"
+  (saved)="applyConfig($event)" (closed)="configuring.set(null)" />

@@ -1,0 +1,308 @@
+<nav class="crumbs" aria-label="Ruta">
+  <a routerLink="/inventory"><i class="bi bi-diagram-3" aria-hidden="true"></i> Inventario</a>
+  @if (progress(); as p) {
+    <i class="bi bi-chevron-right" aria-hidden="true"></i>
+    <a [routerLink]="['/assets', p.assetId]">{{ p.assetName }}</a>
+  }
+  <i class="bi bi-chevron-right" aria-hidden="true"></i>
+  <span aria-current="page">Alta</span>
+</nav>
+
+<h1>
+  <i class="bi bi-hdd-rack" aria-hidden="true"></i>
+  Alta {{ progress() ? 'de ' + progress()!.assetName : '' }}
+</h1>
+
+<p-stepper [value]="step()" [linear]="true" class="steps">
+  <p-step-list>
+    @for (label of steps; track label; let i = $index) {
+      <p-step [value]="i + 1" [class.done]="i + 1 < step() || phase() === 'ready'" [attr.data-step]="i + 1">
+        {{ label }}
+      </p-step>
+    }
+  </p-step-list>
+</p-stepper>
+
+@if (streamError(); as message) {
+  <p-message severity="error" icon="bi bi-exclamation-triangle" role="alert">{{ message }}</p-message>
+} @else if (!progress()) {
+  <p-skeleton height="12rem" />
+}
+
+@if (actionError(); as message) {
+  <p-message severity="error" icon="bi bi-exclamation-triangle" role="alert" styleClass="mb">{{ message }}</p-message>
+}
+
+<ng-template #regenerateBlock let-label="label">
+  @if (auth.can('assets.write')) {
+    <div class="regenerate">
+      <span class="check">
+        <p-checkbox
+          inputId="regenInstallSudo"
+          [binary]="true"
+          [ngModel]="installSudo()"
+          (ngModelChange)="installSudo.set($event)"
+        />
+        <label for="regenInstallSudo">Instalar sudo si falta (<code>--install-sudo</code>)</label>
+      </span>
+      <p-button
+        [label]="label"
+        icon="bi bi-arrow-repeat"
+        severity="secondary"
+        [loading]="busy()"
+        (onClick)="regenerate()"
+        data-action="regenerate"
+      />
+    </div>
+  }
+</ng-template>
+
+@if (progress(); as p) {
+  @switch (p.phase) {
+    @case ('waiting') {
+      <section class="panel" data-phase="waiting">
+        @if (p.enrollment.expired) {
+          <p-message severity="warn" icon="bi bi-hourglass-bottom" styleClass="mb">
+            El comando ha caducado: genera uno nuevo.
+          </p-message>
+        } @else if (p.enrollment.expiresAt) {
+          <p class="muted">
+            <i class="bi bi-hourglass-split" aria-hidden="true"></i>
+            El comando caduca a las {{ p.enrollment.expiresAt | date: 'shortTime' }} y solo sirve una vez.
+          </p>
+        }
+
+        @if (commandsShown(); as c) {
+          <p-message severity="warn" icon="bi bi-info-circle" styleClass="mb">
+            <span>
+              El servidor necesita <strong>sudo</strong> y <strong>python3</strong> (Proxmox no trae sudo de serie).
+              @if (installSudo()) {
+                Con <code>--install-sudo</code>, ejecuta el comando <strong>como root</strong>.
+              }
+            </span>
+          </p-message>
+
+          <p-tabs [value]="tab()" (valueChange)="tab.set($any($event))">
+            <p-tablist>
+              <p-tab value="url"><i class="bi bi-link-45deg" aria-hidden="true"></i> Por URL</p-tab>
+              <p-tab value="embedded"><i class="bi bi-shield-lock" aria-hidden="true"></i> Script embebido (VPN/NAT)</p-tab>
+              @if (c.manualCommand) {
+                <p-tab value="manual"><i class="bi bi-key" aria-hidden="true"></i> Manual</p-tab>
+              }
+            </p-tablist>
+            <p-tabpanels>
+              <p-tabpanel value="url">
+                <p>
+                  Ejecuta en el servidor. El script crea el usuario <code>{{ enrollUser }}</code>,
+                  @if (c.authMode === 'ca_certificate') {
+                    configura sshd para que solo acepte certificados de vida corta de la CA de InfraWard (sin
+                    claves permanentes; valida con <code>sshd -t</code> antes de recargar)
+                    @if (c.purpose === 'ca_migration') {
+                      y quita la clave estática de este servidor,
+                    }
+                  } @else {
+                    instala la clave pública
+                  }
+                  y un sudoers de solo lectura, y avisa a InfraWard con las huellas de las host keys.
+                </p>
+                <div class="command">
+                  <pre data-command="url">{{ c.command }}</pre>
+                  <p-button
+                    [icon]="copied() === 'url' ? 'bi bi-check2' : 'bi bi-clipboard'"
+                    [label]="copied() === 'url' ? 'Copiado' : 'Copiar'"
+                    severity="secondary"
+                    (onClick)="copy('url', c.command)"
+                  />
+                </div>
+                <p class="muted">Esta página avanza sola cuando el script termina.</p>
+              </p-tabpanel>
+
+              <p-tabpanel value="embedded">
+                <p>
+                  Para servidores que no llegan a InfraWard (VPN, NAT): el script va dentro del comando, no lleva
+                  token ni avisa a la API. Al terminar imprime las huellas de las host keys:
+                  <strong>pégalas abajo</strong> para que InfraWard compruebe que se conecta al servidor correcto.
+                </p>
+                <div class="command">
+                  <pre data-command="embedded" class="wrap">{{ c.embeddedCommand }}</pre>
+                  <p-button
+                    [icon]="copied() === 'embedded' ? 'bi bi-check2' : 'bi bi-clipboard'"
+                    [label]="copied() === 'embedded' ? 'Copiado' : 'Copiar'"
+                    severity="secondary"
+                    (onClick)="copy('embedded', c.embeddedCommand)"
+                  />
+                </div>
+                @if (auth.can('assets.write')) {
+                  <label for="fingerprints" class="block">Huellas que imprimió el script</label>
+                  <textarea
+                    pTextarea
+                    id="fingerprints"
+                    rows="5"
+                    class="mono"
+                    placeholder="----- infraward host keys -----&#10;ED25519 SHA256:…"
+                    [ngModel]="fingerprintsText()"
+                    (ngModelChange)="fingerprintsText.set($event)"
+                    fluid
+                  ></textarea>
+                  @if (fingerprints().length) {
+                    <ul class="fingerprints" data-fingerprints>
+                      @for (fp of fingerprints(); track fp.fingerprint) {
+                        <li><p-tag [value]="fp.type" severity="info" /> <code>{{ fp.fingerprint }}</code></li>
+                      }
+                    </ul>
+                  } @else if (fingerprintsText().trim()) {
+                    <p class="error-text">No se reconoce ninguna huella (formato: <code>ED25519 SHA256:…</code>).</p>
+                  }
+                  <p-button
+                    label="Confirmar con estas huellas"
+                    icon="bi bi-check2-circle"
+                    [disabled]="fingerprints().length === 0"
+                    [loading]="busy()"
+                    (onClick)="confirmEmbedded()"
+                    data-action="confirm-embedded"
+                  />
+                }
+              </p-tabpanel>
+
+              @if (c.manualCommand; as manual) {
+              <p-tabpanel value="manual">
+                <p>
+                  Añade la clave pública a la cuenta de un usuario que <strong>no sea root</strong>. Sin el script no
+                  hay sudoers, así que la recolección será parcial, y la host key se fija en la primera conexión
+                  (sin verificación fuera de banda).
+                </p>
+                <div class="command">
+                  <pre data-command="manual" class="wrap">{{ manual }}</pre>
+                  <p-button
+                    [icon]="copied() === 'manual' ? 'bi bi-check2' : 'bi bi-clipboard'"
+                    [label]="copied() === 'manual' ? 'Copiado' : 'Copiar'"
+                    severity="secondary"
+                    (onClick)="copy('manual', manual)"
+                  />
+                </div>
+                @if (auth.can('assets.write')) {
+                  <div class="row">
+                    <div class="field">
+                      <label for="manualUser">Usuario en cuya cuenta la añadiste</label>
+                      <input
+                        pInputText
+                        id="manualUser"
+                        autocomplete="off"
+                        [ngModel]="manualUser()"
+                        (ngModelChange)="manualUser.set($event)"
+                        [invalid]="manualUser() !== '' && !manualUserValid()"
+                      />
+                      @if (manualUser().trim() === 'root') {
+                        <small class="error-text">Nunca root: InfraWard entra con un usuario sin privilegios.</small>
+                      }
+                    </div>
+                    <p-button
+                      label="Ya la he añadido"
+                      icon="bi bi-check2-circle"
+                      [disabled]="!manualUserValid()"
+                      [loading]="busy()"
+                      (onClick)="confirmManual()"
+                      data-action="confirm-manual"
+                    />
+                  </div>
+                }
+              </p-tabpanel>
+              }
+            </p-tabpanels>
+          </p-tabs>
+        } @else {
+          <p class="muted">
+            El comando solo se muestra al generarlo. Si no lo copiaste, genera uno nuevo (el anterior deja de valer).
+          </p>
+        }
+        <ng-container *ngTemplateOutlet="regenerateBlock; context: { label: 'Generar comando nuevo' }" />
+      </section>
+    }
+
+    @case ('connecting') {
+      <section class="panel" data-phase="connecting">
+        <p><i class="bi bi-plug" aria-hidden="true"></i> Conectando por SSH…</p>
+        <p-progressbar [value]="verifyJob()?.progress ?? 0" [showValue]="false" class="mb" />
+        @if (verifyJob()?.message; as message) {
+          <p class="muted" data-message>{{ message }}</p>
+        }
+      </section>
+    }
+
+    @case ('scanning') {
+      <section class="panel" data-phase="scanning">
+        <p><i class="bi bi-search" aria-hidden="true"></i> Conectado. Recogiendo facts, descubriendo y escaneando…</p>
+        <ng-container *ngTemplateOutlet="jobGroups" />
+      </section>
+    }
+
+    @case ('ready') {
+      <section class="panel" data-phase="ready">
+        <p-message severity="success" icon="bi bi-check2-circle" styleClass="mb">
+          {{ p.assetName }} está dado de alta e inventariado.
+        </p-message>
+        @for (f of failures(); track $index) {
+          <p-message severity="warn" icon="bi bi-exclamation-triangle" styleClass="mb">{{ f }}</p-message>
+        }
+        <ng-container *ngTemplateOutlet="jobGroups" />
+        <div class="actions">
+          <p-button label="Ver la ficha" icon="bi bi-arrow-right" [routerLink]="['/assets', p.assetId]" />
+          <p-button label="Volver al inventario" severity="secondary" [text]="true" routerLink="/inventory" />
+        </div>
+      </section>
+    }
+
+    @case ('failed') {
+      <section class="panel" data-phase="failed">
+        <p-message severity="error" icon="bi bi-x-octagon" styleClass="mb" role="alert">
+          {{ p.enrollment.error ?? 'La verificación falló.' }}
+        </p-message>
+        @if (auth.can('assets.write')) {
+          <div class="actions">
+            <p-button
+              label="Reintentar"
+              icon="bi bi-arrow-clockwise"
+              [loading]="busy()"
+              (onClick)="retry()"
+              data-action="retry"
+            />
+          </div>
+        }
+        <ng-container *ngTemplateOutlet="regenerateBlock; context: { label: 'Generar comando nuevo' }" />
+      </section>
+    }
+
+    @case ('cancelled') {
+      <section class="panel" data-phase="cancelled">
+        <p-message severity="secondary" icon="bi bi-slash-circle">
+          Este alta se canceló (el asset se retiró o se sustituyó el enrolamiento).
+        </p-message>
+      </section>
+    }
+  }
+
+  <ng-template #jobGroups>
+    @if (groups().length) {
+      <ul class="jobs">
+        @for (g of groups(); track g.name) {
+          <li [attr.data-job]="g.name">
+            <div class="job-head">
+              <strong>{{ g.label }}</strong>
+              <span class="muted">{{ g.done + g.failed }}/{{ g.total }}</span>
+              @if (g.failed) {
+                <p-tag [value]="g.failed + ' con error'" severity="danger" />
+              }
+            </div>
+            <p-progressbar [value]="g.total ? ((g.done + g.failed) * 100) / g.total : 0" [showValue]="false" />
+            @if (g.active?.message; as message) {
+              <small class="muted">{{ message }}</small>
+            }
+          </li>
+        }
+      </ul>
+      @if (p.truncated) {
+        <p class="muted">Hay más jobs encadenados de los que se muestran.</p>
+      }
+    }
+  </ng-template>
+}

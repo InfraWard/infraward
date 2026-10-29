@@ -1,0 +1,37 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+# Dependencias autorizadas a ejecutar scripts de instalación (binarios nativos del tooling).
+allowBuilds:
+  "@parcel/watcher": true
+  esbuild: true
+  lmdb: true
+  msgpackr-extract: true
+  argon2: true
+  # Denegadas explícitamente: telemetría y extras nativos opcionales (testcontainers funciona sin ellos).
+  "@scarf/scarf": false
+  cpu-features: false
+  protobufjs: false
+  ssh2: false
+
+# Cadena de suministro: una versión tiene que llevar al menos un día publicada (en minutos) para
+# instalarse, un paquete no puede perder las pruebas de confianza (trusted publishing, provenance)
+# que tenían sus versiones anteriores y las dependencias transitivas no pueden venir de git ni de
+# URLs de tarballs.
+minimumReleaseAge: 1440
+trustPolicy: no-downgrade
+blockExoticSubdeps: true
+
+# Versiones parcheadas de dependencias transitivas vulnerables (pnpm audit), sin cambiar de
+# versión mayor. Quitar cada una cuando el paquete que la arrastra ya pida una versión arreglada.
+overrides:
+  "fastify@^5": "^5.12.6"
+  "zod@^4": "^4.6.6"
+  "fast-uri@^3": "^3.1.9"
+  "fast-uri@^4": "^4.2.3"
+  "body-parser@^2": "^2.4.0"
+  "multer@^2": "^2.5.0"
+  "undici@^8": "^8.12.2"
+  "vite@^8": "^8.3.3"
+  "@vitest/mocker@^4": "^4.1.12"

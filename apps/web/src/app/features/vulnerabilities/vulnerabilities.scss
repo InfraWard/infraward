@@ -1,0 +1,568 @@
+:host ::ng-deep .vuln-table {
+  min-width: 52rem;
+}
+
+.check {
+  display: inline-flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.summary {
+  margin: 0 0 0.5rem;
+}
+
+.cve,
+a {
+  color: var(--p-primary-color);
+  text-decoration: none;
+}
+
+.title {
+  font-size: 0.85rem;
+  margin-top: 0.15rem;
+}
+
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+:host ::ng-deep .mb {
+  margin-bottom: 0.75rem;
+}
+
+.back {
+  display: inline-flex;
+  gap: 0.35rem;
+  align-items: center;
+  margin: 0.25rem 0 0.5rem;
+}
+
+.ref {
+  white-space: nowrap;
+}
+
+.asset {
+  display: inline-flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+h3 {
+  font-size: 0.95rem;
+  margin: 0.75rem 0 0.4rem;
+  color: var(--p-text-muted-color);
+}
+
+.small {
+  font-size: 0.8rem;
+}
+
+// --- Detalle de un CVE ---
+
+.description {
+  margin: 0 0 1rem;
+  line-height: 1.5;
+  white-space: pre-line;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 0.75rem 1.5rem;
+  margin: 0;
+
+  dt {
+    font-size: 0.8rem;
+    color: var(--p-text-muted-color);
+    margin-bottom: 0.2rem;
+  }
+
+  dd {
+    margin: 0;
+  }
+}
+
+.cvss {
+  display: inline-flex;
+  gap: 0.35rem;
+  align-items: baseline;
+  margin-right: 0.9rem;
+
+  strong {
+    font-size: 1.15rem;
+  }
+
+  &.secondary strong {
+    font-size: 0.95rem;
+  }
+}
+
+.vector,
+.version {
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+
+.version {
+  margin-right: 0.5rem;
+}
+
+.refs {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.9rem;
+
+  li {
+    overflow-wrap: anywhere;
+    margin: 0.15rem 0;
+  }
+}
+
+.source {
+  margin: 0.75rem 0 0;
+}
+
+.section {
+  font-size: 1.15rem;
+  margin: 1.25rem 0 0.25rem;
+}
+
+h3.flush {
+  margin-top: 0;
+}
+
+.jobs {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 0.5rem;
+  display: grid;
+  gap: 0.4rem;
+
+  li {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    align-items: center;
+  }
+}
+
+:host ::ng-deep .bar {
+  width: 8rem;
+  height: 0.5rem;
+}
+
+:host ::ng-deep .affected-table {
+
+  td {
+    vertical-align: top;
+  }
+
+  tr.context td {
+    color: var(--p-text-muted-color);
+  }
+}
+
+.name-cell {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.4rem;
+  align-items: center;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.pkg {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.5rem;
+  align-items: baseline;
+  font-size: 0.9rem;
+
+  & + & {
+    margin-top: 0.25rem;
+  }
+}
+
+.port {
+  display: inline-block;
+  font-size: 0.8rem;
+  margin: 0 0.4rem 0.15rem 0;
+}
+
+.action {
+  white-space: nowrap;
+  display: inline-flex;
+  gap: 0.35rem;
+  align-items: center;
+  font-weight: 500;
+}
+
+// --- Panel de CVE nuevos ---
+
+:host ::ng-deep .new-panel {
+  margin-bottom: 1rem;
+}
+
+.new-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.new-title {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.5rem;
+  align-items: baseline;
+
+  .bi {
+    color: var(--p-primary-color);
+  }
+}
+
+.new-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  margin: 0 0 0.6rem;
+}
+
+.kev-count {
+  color: var(--p-app-danger-color);
+  font-weight: 600;
+}
+
+// Tabla compacta: prioridad · CVE y paquete · severidad · porqué. A 640 px o menos, el porqué
+// pasa a su propia línea bajo el CVE.
+.new-table {
+  display: grid;
+  grid-template-columns: auto minmax(11rem, 16rem) auto minmax(0, 1fr);
+  border-top: 1px solid var(--p-content-border-color);
+}
+
+.new-row {
+  display: contents;
+
+  > span {
+    padding: 0.45rem 0.5rem;
+    border-bottom: 1px solid var(--p-content-border-color);
+    min-width: 0;
+    display: flex;
+    align-items: center;
+  }
+
+  &:hover > span {
+    background: color-mix(in srgb, var(--p-primary-color) 5%, transparent);
+  }
+}
+
+.c-cve {
+  flex-wrap: wrap;
+  gap: 0 0.5rem;
+
+  .pkg {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
+  }
+}
+
+.new-more {
+  display: inline-flex;
+  gap: 0.35rem;
+  align-items: center;
+  margin-top: 0.6rem;
+}
+
+@media (max-width: 640px) {
+  .new-table {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .new-row {
+    > span {
+      border-bottom: 0;
+    }
+
+    > .c-why {
+      grid-column: 2 / -1;
+      padding-top: 0;
+      border-bottom: 1px solid var(--p-content-border-color);
+    }
+
+    > .c-score {
+      grid-row: span 2;
+      align-items: flex-start;
+      border-bottom: 1px solid var(--p-content-border-color);
+    }
+  }
+}
+
+// Estado de CISA KEV y EPSS (en la cabecera).
+.intel {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.75rem;
+  border: 1px solid var(--p-content-border-color);
+  border-radius: 999px;
+  background: var(--p-content-background);
+  font: inherit;
+  font-size: 0.85rem;
+  color: var(--p-text-muted-color);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+
+  &:hover,
+  &[aria-expanded='true'] {
+    color: var(--p-text-color);
+    border-color: color-mix(in srgb, var(--p-primary-color) 50%, var(--p-content-border-color));
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--p-primary-color);
+    outline-offset: 2px;
+  }
+
+  > .bi-database-check {
+    color: var(--p-app-success-color);
+  }
+
+  .intel-text {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    align-items: center;
+    text-align: left;
+  }
+
+  .sep {
+    opacity: 0.6;
+  }
+
+  &.warn {
+    color: var(--p-app-warn-color);
+    border-color: color-mix(in srgb, var(--p-app-warn-color) 45%, var(--p-content-border-color));
+  }
+}
+
+.spin {
+  animation: intel-spin 1s linear infinite;
+}
+
+@keyframes intel-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+// Panel de fuentes (va en el body: estilos sin encapsular).
+::ng-deep .intel-popover .intel-panel {
+  width: min(24rem, calc(100vw - 2rem));
+  display: grid;
+  gap: 0.25rem;
+
+  > header {
+    display: grid;
+    gap: 0.1rem;
+    padding-bottom: 0.5rem;
+  }
+
+  .muted {
+    color: var(--p-text-muted-color);
+  }
+
+  .source {
+    display: grid;
+    gap: 0.45rem;
+    padding: 0.75rem 0;
+    border-top: 1px solid var(--p-content-border-color);
+  }
+
+  .source-head {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6rem;
+  }
+
+  .source-title {
+    display: grid;
+    gap: 0.05rem;
+
+    small {
+      font-size: 0.78rem;
+    }
+  }
+
+  .dot {
+    flex: none;
+    width: 0.6rem;
+    height: 0.6rem;
+    margin-top: 0.4rem;
+    border-radius: 50%;
+    background: var(--p-content-border-color);
+
+    &.ok {
+      background: var(--p-app-success-color);
+    }
+
+    &.warn {
+      background: var(--p-app-warn-color);
+    }
+
+    &.error {
+      background: var(--p-app-danger-color);
+    }
+  }
+
+  .headline {
+    margin: 0 0 0 1.2rem;
+    font-weight: 600;
+  }
+
+  .lines {
+    list-style: none;
+    margin: 0 0 0 1.2rem;
+    padding: 0;
+    display: grid;
+    gap: 0.3rem;
+    font-size: 0.82rem;
+    color: var(--p-text-muted-color);
+
+    li {
+      display: grid;
+      grid-template-columns: 1rem 1fr;
+      gap: 0.4rem;
+      align-items: baseline;
+    }
+
+    .warn {
+      color: var(--p-app-warn-color);
+    }
+
+    .error {
+      color: var(--p-app-danger-color);
+    }
+  }
+
+  .source p-button,
+  .source-actions {
+    margin-left: 1.2rem;
+  }
+
+  .source-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+}
+
+:host ::ng-deep .reevaluate-result {
+  margin-bottom: 0.75rem;
+}
+
+.checks {
+  margin-top: -0.25rem;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0 0 0.5rem;
+}
+
+.chip {
+  display: inline-flex;
+  gap: 0.35rem;
+  align-items: center;
+  padding: 0.15rem 0.3rem 0.15rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--p-content-border-color);
+  font-size: 0.85rem;
+
+  button {
+    border: 0;
+    background: none;
+    color: inherit;
+    cursor: pointer;
+    padding: 0 0.15rem;
+  }
+
+  &.hidden-chip {
+    border-style: dashed;
+  }
+}
+
+.hidden-line {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.85rem;
+}
+
+.cve-cell {
+  min-width: 20rem;
+}
+
+.affects {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+:host ::ng-deep .mini-tag {
+  margin-left: 0.4rem;
+  font-size: 0.7rem;
+  vertical-align: middle;
+}
+
+// Expuesto con un nombre público (QoL-5b): junto al CVE.
+:host ::ng-deep .exposure {
+  margin-left: 0.4rem;
+  vertical-align: middle;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.select-col {
+  text-align: center;
+}
+
+:host ::ng-deep tr.selected-row > td {
+  background: color-mix(in srgb, var(--p-primary-color) 8%, transparent);
+}
+
+/* La búsqueda con filtros ocupa lo que quede; sus chips van debajo, sin mover los desplegables. */
+.filters:has(.search) {
+  align-items: flex-start;
+}
+
+.filters .search {
+  flex: 1 1 22rem;
+  min-width: min(100%, 16rem);
+}
+
+// Ficha del CVE: porqué de la prioridad bajo el título y KEV.
+:host ::ng-deep .detail-reasons {
+  margin-top: 0.35rem;
+}
+
+.kev {
+  color: var(--p-app-danger-color);
+  margin-bottom: 0.25rem;
+
+  .text-muted {
+    display: block;
+  }
+}
+
+:host ::ng-deep tr.noise > td {
+  opacity: 0.7;
+}

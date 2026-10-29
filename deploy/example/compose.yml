@@ -1,0 +1,258 @@
+# Despliegue de ejemplo de InfraWard con las imágenes publicadas (web, API y worker) más
+# PostgreSQL y Redis. Ver README.md (sección «Despliegue con contenedores»).
+#   cp .env.example .env            # y ajustar
+#   ./init.sh                       # clave maestra y, con compose.openbao.yml, OpenBao
+#   docker compose up -d            # o: podman compose up -d
+# compose.openbao.yml (activado por defecto con COMPOSE_FILE en .env) añade OpenBao.
+# La web queda en INFRAWARD_PUBLIC_URL (por defecto http://localhost:8080) y la API detrás, en /api.
+# Nombre propio: no comparte contenedores con deploy/docker-compose.yml (desarrollo).
+# Los datos persistentes van en ./data/<servicio> (bind mounts; init.sh crea los directorios con
+# el propietario de cada contenedor). Ver README.md para migrar desde los volúmenes con nombre.
+name: infraward-stack
+
+x-database-only: &database-only
+  DATABASE_HOST: postgres
+  DATABASE_PORT: "5432"
+  DATABASE_USER: ${POSTGRES_USER:-infraward}
+  DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD es obligatoria}
+  DATABASE_NAME: ${POSTGRES_DB:-infraward}
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  # La contraseña, de un fichero (secreto redis_password): no queda en el entorno del contenedor.
+  REDIS_PASSWORD_FILE: /run/secrets/redis_password
+
+x-database: &database
+  <<: *database-only
+  # API y worker deben compartir proveedores y clave maestra.
+  SECRETS_PROVIDERS: local
+  SECRETS_LOCAL_MASTER_KEY_FILE: /run/secrets/master_key
+
+# Endurecimiento común a todos los servicios: sin capabilities de Linux, sin escalada de
+# privilegios (binarios setuid) y raíz de solo lectura. Lo escribible son volúmenes o tmpfs.
+x-hardening: &hardening
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  read_only: true
+
+services:
+  web:
+    image: ${INFRAWARD_REGISTRY:?INFRAWARD_REGISTRY es obligatoria}/web:${INFRAWARD_VERSION:-latest}
+    restart: unless-stopped
+    environment:
+      API_UPSTREAM: http://api:3000
+      # WebSocket de la terminal en /gateway/ (mismo origen: la cookie de la sesión viaja).
+      GATEWAY_UPSTREAM: http://gateway:3010
+    ports:
+      - "${INFRAWARD_HTTP_PORT:-8080}:8080"
+    <<: *hardening
+    # nginx escribe su pid y sus temporales en /tmp y genera la config de las plantillas en conf.d.
+    tmpfs:
+      - /tmp:uid=101,gid=101,mode=0700
+      - /etc/nginx/conf.d:uid=101,gid=101,mode=0755
+    networks: [default]
+    depends_on:
+      api:
+        condition: service_healthy
+
+  api:
+    image: ${INFRAWARD_REGISTRY}/api:${INFRAWARD_VERSION:-latest}
+    restart: unless-stopped
+    environment:
+      <<: *database
+      # URL pública de la API (detrás del nginx de la web): de aquí se descarga el script de alta
+      # y sale el origen permitido para las escrituras (CSRF).
+      PUBLIC_URL: ${INFRAWARD_PUBLIC_URL:-http://localhost:8080}/api
+      # IP real del cliente a través del nginx de la web (redes privadas de Docker/Podman).
+      TRUST_PROXY: loopback,uniquelocal
+      ADMIN_EMAIL: ${ADMIN_EMAIL:?ADMIN_EMAIL es obligatoria}
+      # Solo se usa en el primer arranque (si no hay ningún usuario).
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD es obligatoria}
+      # Caja fuerte de credenciales (QoL-7): SOLO la API, con una clave propia que el worker no
+      # tiene (compose.openbao.yml la pasa a OpenBao con su propia AppRole).
+      VAULT_PROVIDER: local
+      VAULT_LOCAL_MASTER_KEY_FILE: /run/secrets/vault_master_key
+      # Terminal (DESIGN §11): el secreto que presenta el gateway en /internal/gateway/* y la URL
+      # de su WebSocket que se da a los clientes. Firmar los certificados exige OpenBao
+      # (compose.openbao.yml): sin él, la terminal no está disponible.
+      GATEWAY_API_SECRET_FILE: /run/secrets/gateway_api_secret
+      # La web hace de proxy del gateway en /gateway/ (mismo origen; ver el servicio web).
+      GATEWAY_PUBLIC_URL: /gateway
+    secrets:
+      - master_key
+      - vault_master_key
+      - gateway_api_secret
+      - redis_password
+    <<: *hardening
+    tmpfs:
+      - /tmp:uid=1000,gid=1000,mode=0700
+    networks: [default, backend]
+    # También en el Dockerfile, pero las imágenes OCI (p. ej. construidas con Podman) no lo guardan.
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      start_period: 60s
+      retries: 5
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # Escalable: `docker compose up -d --scale worker=3` (o WORKER_REPLICAS en .env). Cada réplica
+  # se llama worker-1, worker-2… en la Actividad; se reparten los jobs sin duplicarlos, con un
+  # límite de jobs a la vez por servidor (HOST_MAX_JOBS) entre todas (DESIGN §20).
+  worker:
+    image: ${INFRAWARD_REGISTRY}/worker:${INFRAWARD_VERSION:-latest}
+    restart: unless-stopped
+    deploy:
+      replicas: ${WORKER_REPLICAS:-1}
+    environment:
+      <<: *database
+      # Concurrencia de cada réplica por tipo de job (0 = esa réplica no lo hace).
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-5}
+      COLLECT_CONCURRENCY: ${COLLECT_CONCURRENCY:-4}
+      DISCOVERY_CONCURRENCY: ${DISCOVERY_CONCURRENCY:-2}
+      DOMAINS_SYNC_CONCURRENCY: ${DOMAINS_SYNC_CONCURRENCY:-2}
+      IMAGE_SCAN_CONCURRENCY: ${IMAGE_SCAN_CONCURRENCY:-1}
+      HOST_SCAN_CONCURRENCY: ${HOST_SCAN_CONCURRENCY:-1}
+      # Jobs a la vez contra un mismo servidor (un CT cuenta contra su nodo), sumando réplicas.
+      HOST_MAX_JOBS: ${HOST_MAX_JOBS:-2}
+      HOST_MAX_SCAN_JOBS: ${HOST_MAX_SCAN_JOBS:-1}
+      # Al parar, espera a los jobs en curso como mucho esto; después vuelven a la cola. Menor
+      # que stop_grace_period.
+      WORKER_SHUTDOWN_GRACE: "90"
+    secrets:
+      - master_key
+      - redis_password
+    volumes:
+      # Caché de Trivy (~3 GB) y directorio de trabajo de los escaneos. COMPARTIDO por todas las
+      # réplicas (obligatorio): una sola descarga de la BD de Trivy para todas; cada réplica
+      # trabaja en su subdirectorio de scan/.
+      - ./data/worker:/var/lib/infraward
+    stop_grace_period: 120s
+    # Claves SSH temporales en /dev/shm (tmpfs).
+    shm_size: 64m
+    <<: *hardening
+    tmpfs:
+      - /tmp:uid=1000,gid=1000,mode=0700
+    # default: SSH a los servidores y descargas (BD de Trivy); backend: PostgreSQL y Redis.
+    networks: [default, backend]
+    depends_on:
+      # La API aplica las migraciones al arrancar; el worker no migra.
+      api:
+        condition: service_healthy
+
+  # Terminal interactiva (DESIGN §3 y §11): el modo `gateway` del worker, mismo código e imagen,
+  # otro proceso y contenedor (un reinicio o un escaneo pesado del worker no corta las sesiones).
+  # NUNCA accede al gestor de secretos: ni SECRETS_* ni OPENBAO_* (no arranca si las tiene); los
+  # certificados de cada sesión los firma la API. Sin puerto publicado: el navegador llega por la
+  # web (/gateway/terminal, mismo origen), así la cookie de la sesión viaja en el upgrade y el
+  # gateway la exige.
+  gateway:
+    image: ${INFRAWARD_REGISTRY}/worker:${INFRAWARD_VERSION:-latest}
+    command: ["node", "dist/main.js", "gateway"]
+    restart: unless-stopped
+    environment:
+      <<: *database-only
+      GATEWAY_API_URL: http://api:3000
+      GATEWAY_API_SECRET_FILE: /run/secrets/gateway_api_secret
+      # Solo la web puede abrir el WebSocket desde un navegador.
+      WEB_ORIGIN: ${INFRAWARD_PUBLIC_URL:-http://localhost:8080}
+      # Al parar, avisa a las sesiones y espera esto antes de cerrarlas (menor que stop_grace_period).
+      GATEWAY_SHUTDOWN_GRACE: "60"
+      # Sesiones a la vez por servidor (aparte de los jobs) y por persona.
+      HOST_MAX_TERMINAL_SESSIONS: ${HOST_MAX_TERMINAL_SESSIONS:-4}
+      TERMINAL_MAX_SESSIONS_PER_USER: ${TERMINAL_MAX_SESSIONS_PER_USER:-3}
+    secrets:
+      - gateway_api_secret
+      - redis_password
+    stop_grace_period: 90s
+    # Claves efímeras de cada sesión en /dev/shm (tmpfs).
+    shm_size: 16m
+    <<: *hardening
+    tmpfs:
+      - /tmp:uid=1000,gid=1000,mode=0700
+    networks: [default, backend]
+    depends_on:
+      api:
+        condition: service_healthy
+
+  postgres:
+    image: docker.io/library/postgres:18-alpine
+    restart: unless-stopped
+    # Directamente con el usuario postgres (data/postgres es 70:70, ver init.sh): el entrypoint no
+    # necesita root para arreglar propietarios.
+    user: "70:70"
+    <<: *hardening
+    tmpfs:
+      - /var/run/postgresql:uid=70,gid=70,mode=0775
+      - /tmp:uid=70,gid=70,mode=0700
+    # Solo la red interna: sin puerto publicado ni salida.
+    networks: [backend]
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-infraward}
+      POSTGRES_USER: ${POSTGRES_USER:-infraward}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ./data/postgres:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: docker.io/library/redis:7-alpine
+    restart: unless-stopped
+    # Con el usuario redis (data/redis es 999:1000, ver init.sh).
+    user: "999:1000"
+    # La contraseña sale del secreto redis_password y entra por stdin (`redis-server -` lee de
+    # ahí su config): ni en la línea de órdenes (`ps`) ni en el entorno (`docker inspect`).
+    command:
+      - sh
+      - -c
+      - |
+        exec redis-server - <<EOF
+        appendonly yes
+        requirepass $$(cat /run/secrets/redis_password)
+        EOF
+    secrets:
+      - redis_password
+    volumes:
+      - ./data/redis:/data
+    <<: *hardening
+    tmpfs:
+      - /tmp:uid=999,gid=1000,mode=0700
+    # Solo la red interna: sin puerto publicado ni salida.
+    networks: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$(cat /run/secrets/redis_password)\" redis-cli ping | grep -q PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+networks:
+  # web, api, worker y gateway: puerto publicado y salida.
+  default: {}
+  # PostgreSQL, Redis y OpenBao: solo los alcanzan los contenedores conectados a ella.
+  backend:
+    internal: true
+
+secrets:
+  # Clave maestra del proveedor local de secretos. Sin ella los secretos guardados son
+  # irrecuperables: haz copia, pero NUNCA en el mismo backup que la BD. La crea init.sh, legible
+  # por el usuario de los contenedores (uid 1000).
+  master_key:
+    file: ./secrets/master.key
+  # Clave de la caja fuerte de credenciales: solo la monta la API (nunca el worker). Igual que la
+  # anterior, haz copia aparte del backup de la BD. La crea init.sh.
+  vault_master_key:
+    file: ./secrets/vault.master.key
+  # Secreto compartido entre la API y el gateway (rutas internas de la terminal). Lo crea init.sh.
+  gateway_api_secret:
+    file: ./secrets/gateway-api.secret
+  # Contraseña de Redis: la montan redis, api, worker y gateway. La crea init.sh, de 1000:1000 y
+  # con permiso de grupo (redis corre como 999:1000).
+  redis_password:
+    file: ./secrets/redis.password

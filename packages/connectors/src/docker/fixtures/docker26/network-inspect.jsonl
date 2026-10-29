@@ -1,0 +1,5 @@
+{"id":"b858bbcebc55ca1ebf226dc0f8a7d66d488c3c5e7d9209e00fef7d7b348f65e8","name":"app-net","driver":"bridge","scope":"local","internal":false,"createdAt":"2026-10-11T00:31:11.121788106Z","subnets":[{"subnet":"172.18.0.0/16","gateway":"172.18.0.1"},null]}
+{"id":"46ea9d1b69af496c76614205f570215595bbf7910400db9680d9a585056039ab","name":"bridge","driver":"bridge","scope":"local","internal":false,"createdAt":"2026-10-11T00:30:59.325271047Z","subnets":[{"subnet":"172.17.0.0/16","gateway":"172.17.0.1"},null]}
+{"id":"81aca642b3aae11ff1314d71b3a31e7a0136c997b2e00a01e7ad494da99610a2","name":"host","driver":"host","scope":"local","internal":false,"createdAt":"2026-10-11T00:30:59.295570163Z","subnets":[null]}
+{"id":"da493eb54d7ccaf34c14942e0cf8808dcd069b0d8832cc113759ecf67b83c4ff","name":"none","driver":"null","scope":"local","internal":false,"createdAt":"2026-10-11T00:30:59.286576821Z","subnets":[null]}
+{"id":"a55d3b0e8acf756b7f43eb125d36c6e7bff67cd3d7dfa5a4fa43610fc28af24b","name":"sin-uso","driver":"bridge","scope":"local","internal":false,"createdAt":"2026-10-11T00:31:11.162293309Z","subnets":[{"subnet":"172.19.0.0/16","gateway":"172.19.0.1"},null]}

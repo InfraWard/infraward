@@ -1,0 +1,202 @@
+.page-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+
+.page-header h1 {
+  margin: 0.5rem 0 0.25rem;
+  font-size: 1.5rem;
+}
+
+.muted {
+  color: var(--p-text-muted-color);
+  margin: 0 0 1rem;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.spacer {
+  flex: 1;
+}
+
+/* Cada grupo de la barra pasa entero a la línea siguiente (no se parte «Expandir | Contraer»). */
+.group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+/* La búsqueda ocupa lo que quede (sus chips van debajo, dentro del mismo grupo). */
+.group:has(.search) {
+  flex: 1 1 32rem;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.search {
+  flex: 1 1 20rem;
+  min-width: min(100%, 16rem);
+}
+
+.switch {
+  display: inline-flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-right: 0.5rem;
+}
+
+:host ::ng-deep .inventory {
+  .p-treetable-wrapper {
+    overflow-x: auto;
+  }
+  .inventory-table {
+    width: 100%;
+    // La columna Nombre se queda con lo que sobra: al menos ~16rem.
+    min-width: 65rem;
+    table-layout: fixed;
+  }
+  td {
+    vertical-align: middle;
+  }
+  td[data-col='address'] {
+    overflow-wrap: anywhere;
+  }
+}
+
+.name-cell {
+  display: inline-flex;
+  gap: 0.5rem;
+  align-items: center;
+  min-width: 0;
+
+  .type-icon {
+    color: var(--p-text-muted-color);
+  }
+
+  .name-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .roles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    margin-top: 0.15rem;
+  }
+
+  .role {
+    font-size: 0.75rem;
+    line-height: 1.3;
+    padding: 0 0.4rem;
+    border-radius: 999px;
+    background: var(--p-highlight-background);
+    color: var(--p-highlight-color);
+  }
+
+  a {
+    color: var(--p-primary-color);
+    text-decoration: none;
+    font-weight: 500;
+
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+}
+
+.chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.address {
+  font-size: 0.85rem;
+}
+
+.none {
+  color: var(--p-text-muted-color);
+}
+
+.vulns {
+  display: inline-flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+  white-space: nowrap;
+  border-radius: 4px;
+
+  &:focus-visible {
+    outline: 2px solid var(--p-primary-color);
+    outline-offset: 2px;
+  }
+
+  .fixable {
+    font-weight: 600;
+    small {
+      font-weight: 400;
+      color: var(--p-text-muted-color);
+    }
+  }
+
+  .no-fix {
+    font-size: 0.85rem;
+    color: var(--p-text-muted-color);
+  }
+}
+
+.empty {
+  text-align: center;
+  padding: 2rem;
+}
+
+.name-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.project-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  flex: none;
+}
+
+.discovered {
+  color: var(--p-text-muted-color);
+  font-size: 0.75rem;
+}
+
+.row-tags {
+  margin-top: 0.2rem;
+}
+
+
+// La caducidad de un certificado en una sola línea (cabe en la columna Estado).
+:host ::ng-deep .nowrap-tag {
+  white-space: nowrap;
+}
+
+.select-col {
+  width: 2.75rem;
+  text-align: center;
+}
+
+:host ::ng-deep .inventory tr.selected-row > td {
+  background: color-mix(in srgb, var(--p-primary-color) 8%, transparent);
+}

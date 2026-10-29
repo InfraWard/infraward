@@ -1,0 +1,53 @@
+<section class="dw" [attr.data-widget]="widget().type" [attr.data-widget-id]="widget().id" [attr.aria-label]="title()">
+  <header class="dw-head">
+    @if (editing()) {
+      <i class="bi bi-grip-vertical dw-handle" aria-hidden="true" title="Arrastra para mover"></i>
+    }
+    <h2 class="dw-title"><i class="bi {{ def().icon }}" aria-hidden="true"></i> <span>{{ title() }}</span></h2>
+    @if (chips().length) {
+      <ul class="dw-chips" aria-label="Filtros">
+        @for (c of chips(); track c.key) {
+          <li [class.warn]="c.warn"><i class="bi {{ c.icon }}" aria-hidden="true"></i>{{ c.text }}</li>
+        }
+      </ul>
+    }
+    @if (editing()) {
+      <p-button icon="bi bi-three-dots-vertical" [text]="true" [rounded]="true" size="small" severity="secondary"
+        [ariaLabel]="'Opciones de ' + title()" (onClick)="opts.toggle($event)" data-widget-menu />
+      <p-menu #opts [model]="menu()" [popup]="true" appendTo="body" />
+    }
+  </header>
+  <div class="dw-body">
+    @switch (loaded().state) {
+      @case ('loading') {
+        <p-skeleton height="2.5rem" styleClass="dw-skel" />
+        <p-skeleton height="1rem" width="70%" />
+      }
+      @case ('error') {
+        @if (loaded(); as l) {
+          @if (l.state === 'error') {
+            <p class="dw-error"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i> {{ l.message }}
+              <p-button label="Reintentar" [text]="true" size="small" (onClick)="reload()" />
+            </p>
+          }
+        }
+      }
+      @case ('ready') {
+        @switch (widget().type) {
+          @case ('asset-summary') { <app-asset-summary-widget [data]="data()" [links]="links()" /> }
+          @case ('fixable-vulnerabilities') { <app-fixable-vulnerabilities-widget [data]="data()" [links]="links()" /> }
+          @case ('vulnerability-counts') { <app-vulnerability-counts-widget [data]="data()" [links]="links()" /> }
+          @case ('asset-counts') { <app-asset-counts-widget [data]="data()" [links]="links()" /> }
+          @case ('pending-enrollment') { <app-pending-enrollment-widget [data]="data()" [links]="links()" /> }
+          @case ('running-jobs') { <app-running-jobs-widget [data]="data()" [links]="links()" /> }
+          @case ('top-vulnerabilities') { <app-top-vulnerabilities-widget [data]="data()" [links]="links()" /> }
+          @case ('new-vulnerabilities') { <app-new-vulnerabilities-widget [data]="data()" [links]="links()" [widget]="widget()" /> }
+          @case ('attention') { <app-attention-widget [data]="data()" [links]="links()" /> }
+          @case ('expirations') { <app-expirations-widget [data]="data()" /> }
+          @case ('recent-activity') { <app-recent-activity-widget [data]="data()" [links]="links()" /> }
+          @case ('trend') { <app-trend-widget [data]="data()" /> }
+        }
+      }
+    }
+  </div>
+</section>

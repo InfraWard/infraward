@@ -1,0 +1,177 @@
+<header class="page-head">
+  <div>
+    <h1><i class="bi bi-activity" aria-hidden="true"></i> Actividad</h1>
+    <p>Recolecciones, descubrimientos, escaneos y verificaciones de alta, de la más reciente a la más antigua.</p>
+  </div>
+  <div class="head-tags">
+    @if (running(); as n) {
+      <p-tag severity="info" icon="bi bi-arrow-repeat" [value]="n + (n === 1 ? ' en curso' : ' en curso o en cola')" data-running />
+    }
+    @if (workers(); as w) {
+      <p-tag
+        [severity]="w.detail ? 'secondary' : 'warn'"
+        icon="bi bi-cpu"
+        [value]="w.label"
+        [pTooltip]="w.detail"
+        tooltipStyleClass="pre-line"
+        data-workers
+      />
+    }
+  </div>
+</header>
+
+<div class="filters">
+  <p-selectbutton
+    [options]="stateOptions"
+    optionLabel="label"
+    optionValue="value"
+    [allowEmpty]="false"
+    [ngModel]="query().state ?? null"
+    (ngModelChange)="setFilter({ state: $event })"
+    ariaLabelledBy="activity-state"
+    data-filter="state"
+  />
+  <p-select
+    [options]="nameOptions"
+    optionLabel="label"
+    optionValue="value"
+    [ngModel]="query().name ?? null"
+    (ngModelChange)="setFilter({ name: $event })"
+    ariaLabel="Tipo de job"
+    data-filter="name"
+  />
+  @if (query().assetId) {
+    <p-chip
+      [label]="'Asset: ' + assetName()"
+      icon="bi bi-funnel"
+      [removable]="true"
+      (onRemove)="setFilter({ assetId: null })"
+      data-filter="asset"
+    />
+  }
+  @if (query().parentJobId) {
+    <p-chip
+      label="Tareas de una operación"
+      icon="bi bi-ui-checks"
+      [removable]="true"
+      (onRemove)="setFilter({ parentJobId: null })"
+      data-filter="parent"
+    />
+  }
+</div>
+
+@if (loaded(); as l) {
+  @if (l.state === 'error') {
+    <p-message severity="error" icon="bi bi-exclamation-triangle" styleClass="mb">{{ l.message }}</p-message>
+  }
+}
+
+<div class="table-scroll">
+  <p-table
+    [value]="page().items"
+    [lazy]="true"
+    [paginator]="true"
+    [rows]="pageSize"
+    [first]="first()"
+    [totalRecords]="page().total"
+    [loading]="loaded().state === 'loading'"
+    dataKey="id"
+    size="small"
+    tableStyleClass="activity-table"
+    (onLazyLoad)="onLazyLoad($event)"
+  >
+    <ng-template #header>
+      <tr>
+        <th style="width: 15rem">Tarea</th>
+        <th>Asset</th>
+        <th style="width: 18rem">Estado</th>
+        <th style="width: 7rem">Worker</th>
+        <th style="width: 10rem">Inicio</th>
+        <th style="width: 8rem">Duración</th>
+      </tr>
+    </ng-template>
+    <ng-template #body let-run>
+      <tr [attr.data-run]="run.id" [attr.data-state]="run.state">
+        <td>
+          <span class="job">
+            <i class="bi {{ jobIcons[run.name] }}" aria-hidden="true"></i>
+            {{ jobLabels[run.name] }}
+            @if (run.parentJobId) {
+              <a
+                [routerLink]="[]"
+                [queryParams]="{ parentJobId: run.parentJobId }"
+                queryParamsHandling="merge"
+                pTooltip="Encadenada por otra tarea o lanzada en lote: ver las de la misma"
+                aria-label="Ver las tareas de la misma operación"
+                ><i class="bi bi-link-45deg text-muted" aria-hidden="true"></i
+              ></a>
+            }
+          </span>
+        </td>
+        <td>
+          @if (run.assetId) {
+            <a [routerLink]="['/assets', run.assetId]" class="asset">
+              <i class="bi {{ typeIcons[run.assetType] }}" aria-hidden="true"></i>
+              {{ run.assetName }}
+            </a>
+          } @else if (run.assetName) {
+            <span class="text-muted" pTooltip="El asset ya no existe">{{ run.assetName }}</span>
+          } @else {
+            <span class="text-muted">—</span>
+          }
+        </td>
+        <td>
+          <p-tag [value]="stateLabels[run.state]" [severity]="stateSeverity[run.state]" />
+          @if (run.state === 'active') {
+            <p-progressbar [value]="run.progress" [showValue]="false" styleClass="progress" />
+            @if (run.message) {
+              <div class="detail text-muted">{{ run.progress }} % · {{ run.message }}</div>
+            }
+          }
+          @if (run.state === 'queued' && run.message && run.name !== 'assets.bulk') {
+            <div class="detail text-muted" data-wait>{{ run.message }}</div>
+          }
+          @if (run.error) {
+            <div class="detail error" data-error>{{ run.error }}</div>
+          }
+          @if (run.name === 'assets.bulk' && run.message) {
+            <div class="detail text-muted" data-bulk-message>{{ run.message }}</div>
+          }
+          @if (run.children; as c) {
+            <div class="detail" data-children>
+              <a [routerLink]="[]" [queryParams]="{ parentJobId: run.id, state: null, name: null, assetId: null }" queryParamsHandling="merge">
+                {{ c.total }} {{ c.total === 1 ? 'tarea' : 'tareas' }}
+              </a>
+              @if (c.running) {
+                · <span class="text-muted">{{ c.running }} en curso</span>
+              }
+              @if (c.failed) {
+                · <span class="error">{{ c.failed }} {{ c.failed === 1 ? 'fallida' : 'fallidas' }}</span>
+              }
+            </div>
+          }
+        </td>
+        <td class="nowrap" data-worker>
+          @if (run.worker) {
+            <span class="worker" [pTooltip]="run.state === 'active' ? 'Réplica que lo ejecuta' : 'Réplica que lo ejecutó por última vez'">
+              <i class="bi bi-cpu" aria-hidden="true"></i> {{ run.worker }}
+            </span>
+          } @else {
+            <span class="text-muted">—</span>
+          }
+        </td>
+        <td class="nowrap">
+          <span [pTooltip]="'Encolada ' + (run.createdAt | date: 'medium')">
+            {{ (run.startedAt ?? run.createdAt) | date: 'short' }}
+          </span>
+        </td>
+        <td class="nowrap" data-duration>{{ duration(run.durationMs) }}</td>
+      </tr>
+    </ng-template>
+    <ng-template #emptymessage>
+      <tr>
+        <td colspan="6" class="text-muted">Sin actividad con este filtro.</td>
+      </tr>
+    </ng-template>
+  </p-table>
+</div>

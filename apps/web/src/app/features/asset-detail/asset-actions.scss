@@ -1,0 +1,58 @@
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+/* Dar de baja y purgar, separadas a la derecha del todo. */
+.spacer {
+  flex: 1 1 auto;
+}
+
+:host ::ng-deep .running {
+  margin-top: 0.75rem;
+}
+
+.running-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: min(28rem, 100%);
+
+  a {
+    color: var(--p-primary-color);
+    text-decoration: none;
+    font-size: 0.9rem;
+  }
+}
+
+:host ::ng-deep .bar {
+  height: 0.35rem;
+}
+
+.confirm-input {
+  display: block;
+  width: 100%;
+  margin-top: 0.5rem;
+}
+
+.revocation {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+
+  pre {
+    flex: 1;
+    margin: 0;
+    padding: 0.6rem 0.75rem;
+    overflow-x: auto;
+    background: var(--p-app-code-background);
+    border-radius: 6px;
+    font-size: 0.85rem;
+  }
+}
+
+.small {
+  font-size: 0.85rem;
+}

@@ -1,0 +1,28 @@
+// Páginas a pantalla completa antes de entrar en la app (como «Elige tu contraseña»).
+.page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: var(--p-app-background);
+}
+.card {
+  width: min(30rem, 100%);
+  padding: 2rem;
+  border-radius: 12px;
+  background: var(--p-content-background);
+  border: 1px solid var(--p-content-border-color);
+}
+header h1 {
+  font-size: 1.4rem;
+  margin: 0.75rem 0 0.4rem;
+}
+header p {
+  margin: 0 0 1.25rem;
+  color: var(--p-text-muted-color);
+}
+@media (max-width: 480px) {
+  .card {
+    padding: 1.25rem;
+  }
+}

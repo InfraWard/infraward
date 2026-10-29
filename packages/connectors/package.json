@@ -1,0 +1,36 @@
+{
+  "name": "@infraward/connectors",
+  "version": "0.0.0",
+  "license": "AGPL-3.0-only",
+  "private": true,
+  "description": "Descubridores de InfraWard (Proxmox…): interfaz común, parseo y reconciliación. Solo backend.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch",
+    "lint": "eslint src",
+    "test": "vitest run",
+    "test:cov": "vitest run --coverage --coverage.reporter=lcovonly --coverage.reporter=text-summary"
+  },
+  "dependencies": {
+    "@infraward/shared-types": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.1",
+    "@vitest/coverage-v8": "^4.1.2",
+    "eslint": "^10.0.0",
+    "typescript": "~6.0.2",
+    "vitest": "^4.1.2"
+  }
+}

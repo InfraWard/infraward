@@ -1,0 +1,76 @@
+<div class="page" data-terminal-page>
+  <header class="bar">
+    <div class="who">
+      <i class="bi bi-terminal" aria-hidden="true"></i>
+      <strong data-terminal-asset>{{ assetName() ?? 'Terminal' }}</strong>
+      @switch (state().kind) {
+        @case ('connecting') {
+          <p-tag value="Conectando…" severity="secondary" icon="bi bi-hourglass-split" data-terminal-state="connecting" />
+        }
+        @case ('open') {
+          @if (state(); as s) {
+            @if (s.kind === 'open') {
+              <p-tag [value]="'Conectada como ' + s.account" severity="success" icon="bi bi-plug" data-terminal-state="open" />
+            }
+          }
+        }
+        @case ('closed') {
+          @if (state(); as s) {
+            @if (s.kind === 'closed') {
+              <p-tag
+                [value]="s.message"
+                [severity]="s.error ? 'danger' : 'secondary'"
+                icon="bi bi-x-circle"
+                data-terminal-state="closed"
+                styleClass="reason"
+              />
+            }
+          }
+        }
+      }
+    </div>
+    <div class="actions">
+      <p-button
+        label="Copiar"
+        icon="bi bi-clipboard"
+        size="small"
+        [text]="true"
+        severity="secondary"
+        pTooltip="Copia lo seleccionado (Ctrl+Shift+C)"
+        tooltipPosition="bottom"
+        data-terminal-action="copy"
+        (onClick)="copy()"
+      />
+      <p-button
+        label="Pegar"
+        icon="bi bi-clipboard-plus"
+        size="small"
+        [text]="true"
+        severity="secondary"
+        pTooltip="Pega el portapapeles (Ctrl+Shift+V)"
+        tooltipPosition="bottom"
+        [disabled]="state().kind !== 'open'"
+        data-terminal-action="paste"
+        (onClick)="paste()"
+      />
+      <p-button
+        label="Reconectar"
+        icon="bi bi-arrow-repeat"
+        size="small"
+        [outlined]="true"
+        severity="secondary"
+        [disabled]="state().kind === 'connecting'"
+        data-terminal-action="reconnect"
+        (onClick)="reconnect()"
+      />
+      <a class="back" [routerLink]="['/assets', id()]" data-terminal-action="back">
+        <i class="bi bi-arrow-left" aria-hidden="true"></i> Volver a la ficha
+      </a>
+    </div>
+  </header>
+  <!-- El marco lleva borde y padding; xterm va en un div sin padding: addon-fit mide la altura de
+       su contenedor y, con border-box, el padding contaría como filas (la última quedaba cortada). -->
+  <div class="frame">
+    <div class="screen" #screen data-terminal-screen></div>
+  </div>
+</div>

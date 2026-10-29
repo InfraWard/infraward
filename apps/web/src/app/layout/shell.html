@@ -1,0 +1,113 @@
+<p-toolbar styleClass="shell-bar">
+  <ng-template #start>
+    <p-button
+      icon="bi bi-list"
+      severity="secondary"
+      [text]="true"
+      [ariaLabel]="mobile() ? 'Abrir el menú' : collapsed() ? 'Desplegar el menú' : 'Plegar el menú'"
+      [attr.aria-expanded]="mobile() ? drawerOpen() : !collapsed()"
+      data-action="toggle-menu"
+      (onClick)="toggleMenu()"
+    />
+    <a routerLink="/dashboard" class="brand">
+      <app-brand-mark [size]="28" />
+      InfraWard
+    </a>
+  </ng-template>
+  <ng-template #center>
+    @if (!mobile()) {
+      <div class="search-slot"><app-global-search /></div>
+    }
+  </ng-template>
+  <ng-template #end>
+    @if (mobile()) {
+      <p-button
+        icon="bi bi-search"
+        severity="secondary"
+        [text]="true"
+        ariaLabel="Buscar recursos, CVE o paquetes"
+        [attr.aria-expanded]="searchOpen()"
+        data-action="toggle-search"
+        (onClick)="searchOpen.set(!searchOpen())"
+      />
+    }
+    <app-notifications-bell />
+    @if (auth.user(); as user) {
+      <p-button
+        severity="secondary"
+        [text]="true"
+        data-action="user-menu"
+        [ariaLabel]="'Usuario ' + user.name + ' (' + user.email + ')'"
+        (onClick)="menu.toggle($event)"
+      >
+        <span class="user">
+          <i class="bi bi-person-circle" aria-hidden="true"></i>
+          <span class="email" [title]="user.email">{{ user.name }}</span>
+          <p-tag
+            [value]="roleLabel(user.role)"
+            [severity]="roleSeverity(user.role)"
+          />
+          <i class="bi bi-chevron-down" aria-hidden="true"></i>
+        </span>
+      </p-button>
+    }
+    <p-menu #menu [model]="userMenu()" [popup]="true" appendTo="body" />
+  </ng-template>
+</p-toolbar>
+@if (mobile() && searchOpen()) {
+  <div class="search-row">
+    <app-global-search [autofocus]="true" (navigated)="searchOpen.set(false)" />
+  </div>
+}
+
+<ng-template #nav let-compact="compact">
+  <nav class="nav" [class.compact]="compact" aria-label="Secciones">
+    @for (item of navItems(); track item.path) {
+      <a
+        [routerLink]="item.path"
+        routerLinkActive="active"
+        #rla="routerLinkActive"
+        [attr.aria-current]="rla.isActive ? 'page' : null"
+        [pTooltip]="compact ? item.label : undefined"
+        tooltipPosition="right"
+      >
+        <i class="bi {{ item.icon }}" aria-hidden="true"></i>
+        <span class="label">{{ item.label }}</span>
+      </a>
+    }
+  </nav>
+</ng-template>
+
+<div class="frame">
+  @if (!mobile()) {
+    <aside class="sidebar" [class.collapsed]="collapsed()" data-sidebar>
+      <ng-container
+        [ngTemplateOutlet]="nav"
+        [ngTemplateOutletContext]="{ compact: collapsed() }"
+      />
+    </aside>
+  }
+  <main class="content">
+    <router-outlet />
+  </main>
+</div>
+
+@if (mobile()) {
+  <p-drawer
+    [visible]="drawerOpen()"
+    (visibleChange)="drawerOpen.set($event)"
+    styleClass="nav-drawer"
+  >
+    <ng-template #header>
+      <span class="brand drawer-brand">
+        <app-brand-mark [size]="24" />
+        InfraWard
+      </span>
+    </ng-template>
+    <ng-container [ngTemplateOutlet]="nav" [ngTemplateOutletContext]="{ compact: false }" />
+  </p-drawer>
+}
+
+<p-toast position="top-right" />
+<p-confirmdialog [style]="{ width: 'min(30rem, 95vw)' }" />
+<app-reauth-dialog />

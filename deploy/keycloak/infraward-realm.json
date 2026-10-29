@@ -1,0 +1,58 @@
+{
+  "realm": "infraward",
+  "displayName": "InfraWard (desarrollo)",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "resetPasswordAllowed": false,
+  "verifyEmail": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "groups": [
+    { "name": "infraward-admins" },
+    { "name": "infraward-editors" },
+    { "name": "infraward-operators" },
+    { "name": "infraward-auditors" },
+    { "name": "infraward-viewers" }
+  ],
+  "clients": [
+    {
+      "clientId": "infraward",
+      "name": "InfraWard",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "frontchannelLogout": false,
+      "redirectUris": [
+        "http://localhost:4200/api/auth/oidc/callback",
+        "http://localhost:4300/api/auth/oidc/callback",
+        "http://localhost:4301/api/auth/oidc/callback"
+      ],
+      "webOrigins": [],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:4200/login*##http://localhost:4300/login*##http://localhost:4301/login*"
+      },
+      "protocolMappers": [
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "consentRequired": false,
+          "config": {
+            "claim.name": "groups",
+            "full.path": "false",
+            "id.token.claim": "true",
+            "access.token.claim": "false",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ]
+}

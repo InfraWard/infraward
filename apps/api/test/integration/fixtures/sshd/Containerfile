@@ -1,0 +1,11 @@
+# Servidor de pruebas para los tests de integración del script de alta (sshd real).
+# sshd en primer plano y con el log en stderr: los tests leen las líneas «Accepted …» de los
+# logs del contenedor (equivalen a auth.log).
+FROM docker.io/library/debian:13-slim
+RUN apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      openssh-server sudo python3 \
+ && rm -rf /var/lib/apt/lists/* \
+ && mkdir -p /run/sshd
+EXPOSE 22
+CMD ["/usr/sbin/sshd", "-D", "-e"]

@@ -1,0 +1,333 @@
+// «Añadir servidor»: pasos numerados a la izquierda y, al lado, qué va a pasar y los requisitos.
+
+.enroll-head {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  margin-bottom: 1.25rem;
+
+  h1 {
+    margin: 0;
+  }
+
+  p {
+    margin: 0.2rem 0 0;
+  }
+}
+
+.head-icon {
+  display: grid;
+  place-items: center;
+  width: 3rem;
+  height: 3rem;
+  border-radius: 12px;
+  font-size: 1.4rem;
+  color: var(--p-primary-color);
+  background: color-mix(in srgb, var(--p-primary-color) 14%, transparent);
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 20rem;
+  gap: 1.25rem;
+  align-items: start;
+}
+
+@media (max-width: 1000px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+
+  .aside {
+    position: static;
+  }
+}
+
+.form {
+  max-width: none;
+  gap: 1rem;
+}
+
+.step,
+.panel {
+  padding: 1.1rem 1.25rem;
+  border: 1px solid var(--p-content-border-color);
+  border-radius: 12px;
+  background: var(--p-content-background);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+h2 {
+  margin: 0;
+  font-size: 1.05rem;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.num {
+  display: grid;
+  place-items: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 50%;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--p-primary-contrast-color);
+  background: var(--p-primary-color);
+}
+
+.optional {
+  font-size: 0.8rem;
+  font-weight: 400;
+}
+
+// Modo de acceso: tarjetas seleccionables.
+.tiles {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+  gap: 0.75rem;
+
+  legend {
+    padding: 0;
+    margin-bottom: 0.5rem;
+    font-size: 0.875rem;
+    color: var(--p-text-muted-color);
+  }
+}
+
+.tile {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  gap: 0.7rem;
+  align-items: start;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--p-content-border-color);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+
+  &:hover {
+    border-color: color-mix(in srgb, var(--p-primary-color) 50%, var(--p-content-border-color));
+  }
+
+  &.selected {
+    border-color: var(--p-primary-color);
+    background: color-mix(in srgb, var(--p-primary-color) 8%, transparent);
+    box-shadow: 0 0 0 1px var(--p-primary-color) inset;
+  }
+
+  &.disabled {
+    grid-template-columns: auto 1fr;
+    cursor: default;
+    opacity: 0.75;
+  }
+}
+
+.tile-icon,
+.option-icon {
+  font-size: 1.25rem;
+  color: var(--p-primary-color);
+  line-height: 1.2;
+}
+
+.tile-text {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+
+  strong {
+    font-weight: 600;
+  }
+
+  small {
+    line-height: 1.35;
+  }
+}
+
+.badge {
+  display: inline-block;
+  margin-left: 0.35rem;
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  vertical-align: middle;
+  color: var(--p-primary-color);
+  background: color-mix(in srgb, var(--p-primary-color) 14%, transparent);
+
+  &::first-letter {
+    text-transform: uppercase;
+  }
+
+  &.neutral {
+    color: var(--p-text-muted-color);
+    background: var(--p-app-background);
+  }
+}
+
+// Opciones del script: filas con el interruptor a la derecha.
+.options {
+  display: grid;
+  border: 1px solid var(--p-content-border-color);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.option {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 0.8rem;
+  align-items: center;
+  padding: 0.85rem 1rem;
+  cursor: pointer;
+
+  & + .option {
+    border-top: 1px solid var(--p-content-border-color);
+  }
+
+  &:hover {
+    background: var(--p-app-background);
+  }
+
+  &.disabled {
+    cursor: default;
+    opacity: 0.65;
+
+    &:hover {
+      background: none;
+    }
+  }
+}
+
+// Organización: el resumen es el título del paso (sin el marco del estilo común).
+.step .organize {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  background: none;
+}
+
+.organize {
+  summary {
+    cursor: pointer;
+    list-style: none;
+    display: grid;
+    gap: 0.25rem;
+
+    &::-webkit-details-marker {
+      display: none;
+    }
+
+    h2::after {
+      content: '\F282'; // bi-chevron-down
+      font-family: bootstrap-icons;
+      margin-left: auto;
+      font-size: 0.9rem;
+      color: var(--p-text-muted-color);
+      transition: transform 0.15s;
+    }
+  }
+
+  &[open] summary h2::after {
+    transform: rotate(180deg);
+  }
+}
+
+.organize-body {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.actions {
+  padding-top: 0.25rem;
+}
+
+// Lateral.
+.aside {
+  display: grid;
+  gap: 1rem;
+  position: sticky;
+  top: 1rem;
+}
+
+.timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.9rem;
+  position: relative;
+
+  li {
+    display: grid;
+    grid-template-columns: 2rem 1fr;
+    gap: 0.6rem;
+    align-items: start;
+    position: relative;
+  }
+
+  // Línea que une los pasos.
+  li:not(:last-child)::before {
+    content: '';
+    position: absolute;
+    left: 1rem;
+    top: 2rem;
+    bottom: -0.9rem;
+    border-left: 2px dashed var(--p-content-border-color);
+  }
+
+  i {
+    display: grid;
+    place-items: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 50%;
+    color: var(--p-primary-color);
+    background: color-mix(in srgb, var(--p-primary-color) 12%, transparent);
+  }
+
+  span {
+    display: grid;
+    gap: 0.15rem;
+  }
+}
+
+.requirements {
+  ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+  }
+
+  li {
+    display: flex;
+    gap: 0.5rem;
+    align-items: baseline;
+  }
+
+  li i {
+    flex: none;
+    color: var(--p-app-success-color);
+  }
+
+  .note {
+    margin: 0;
+    display: flex;
+    gap: 0.5rem;
+    padding: 0.65rem 0.75rem;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    color: var(--p-app-warn-color);
+    background: color-mix(in srgb, var(--p-app-warn-color) 10%, transparent);
+  }
+}

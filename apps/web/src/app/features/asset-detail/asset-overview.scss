@@ -1,0 +1,171 @@
+.overview {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(19rem, 26rem);
+  gap: 1rem;
+  align-items: start;
+}
+
+.main,
+.side {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-width: 0;
+}
+
+@media (max-width: 1100px) {
+  .overview {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+:host ::ng-deep .card .p-card-title {
+  font-size: 1rem;
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.not-collected {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.4rem 1rem;
+  margin: 0;
+}
+
+dt {
+  color: var(--p-text-muted-color);
+}
+
+dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+code {
+  font-size: 0.85em;
+}
+
+.muted {
+  color: var(--p-text-muted-color);
+}
+
+.small {
+  font-size: 0.85rem;
+}
+
+.vuln-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin: 0 0 0.25rem;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.chip {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  background: var(--p-content-hover-background);
+  border: 1px solid var(--p-content-border-color);
+}
+
+.mini {
+  width: 100%;
+  border-collapse: collapse;
+
+  th,
+  td {
+    text-align: left;
+    padding: 0.35rem 0.5rem;
+    border-bottom: 1px solid var(--p-content-border-color);
+    vertical-align: middle;
+    overflow-wrap: anywhere;
+  }
+
+  th {
+    font-weight: 600;
+    color: var(--p-text-muted-color);
+    font-size: 0.85rem;
+  }
+
+  td p-tag + p-tag {
+    margin-left: 0.25rem;
+  }
+
+  /* «Activo», «caduca en N días»: sin partir la etiqueta. */
+  td.state {
+    overflow-wrap: normal;
+    white-space: nowrap;
+  }
+}
+
+.more-children {
+  margin: 0.6rem 0 0;
+}
+
+a {
+  color: var(--p-primary-color);
+  text-decoration: none;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+.usage-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin: 0 0 0.5rem;
+}
+
+.docker-lists {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 1rem;
+
+  h4 {
+    margin: 0 0 0.4rem;
+    font-size: 0.9rem;
+    color: var(--p-text-muted-color);
+  }
+
+  ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  li {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    align-items: center;
+    padding: 0.3rem 0;
+    border-bottom: 1px solid var(--p-content-border-color);
+    overflow-wrap: anywhere;
+  }
+
+  li:last-child {
+    border-bottom: none;
+  }
+}
+
+.nowrap {
+  white-space: nowrap;
+}

@@ -1,0 +1,14 @@
+{
+  "arch": "amd64",
+  "cores": 1,
+  "digest": "4f0c0d1e",
+  "description": "root: hunter2",
+  "features": "nesting=1",
+  "hostname": "debian",
+  "memory": 512,
+  "net0": "name=eth0,bridge=vmbr0,hwaddr=BC:24:11:AA:BB:CC,ip=dhcp,type=veth",
+  "ostype": "debian",
+  "rootfs": "local-lvm:vm-100-disk-0,size=8G",
+  "swap": 512,
+  "unprivileged": 1
+}

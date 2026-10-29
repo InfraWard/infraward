@@ -1,0 +1,33 @@
+{
+  "name": "@infraward/shared-types",
+  "version": "0.0.0",
+  "license": "AGPL-3.0-only",
+  "private": true,
+  "description": "DTOs e interfaces compartidas entre web, api y worker. Sin dependencias de runtime.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch",
+    "lint": "eslint src",
+    "test": "vitest run",
+    "test:cov": "vitest run --coverage --coverage.reporter=lcovonly --coverage.reporter=text-summary"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^4.1.2",
+    "eslint": "^10.0.0",
+    "typescript": "~6.0.2",
+    "vitest": "^4.1.2"
+  }
+}

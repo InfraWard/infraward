@@ -1,0 +1,5 @@
+app-net
+bridge
+host
+none
+sin-uso

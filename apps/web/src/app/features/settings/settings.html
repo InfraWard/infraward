@@ -1,0 +1,135 @@
+<header class="page-head">
+  <div>
+    <h1><i class="bi bi-gear" aria-hidden="true"></i> Ajustes</h1>
+    <p>
+      @if (restricted()) {
+        Tu perfil y la política de inventario.
+      } @else {
+        Tu perfil, la política de inventario y lo que permite tu rol: conectores, usuarios, secretos o auditoría.
+      }
+    </p>
+  </div>
+</header>
+
+<p-tabs [value]="shownTab()" (valueChange)="selectTab($event)" [lazy]="true" [scrollable]="true">
+  <p-tablist>
+    <p-tab value="profile" data-tab="profile"><i class="bi bi-person" aria-hidden="true"></i> Perfil</p-tab>
+    <p-tab value="tokens" data-tab="tokens"><i class="bi bi-key" aria-hidden="true"></i> Tokens de API</p-tab>
+    <p-tab value="policy" data-tab="policy"><i class="bi bi-sliders" aria-hidden="true"></i> Inventario</p-tab>
+    @if (canSee('connectors')) {
+      <p-tab value="connectors" data-tab="connectors"><i class="bi bi-cloud" aria-hidden="true"></i> Conectores</p-tab>
+    }
+    @if (canSee('users')) {
+      <p-tab value="users" data-tab="users"><i class="bi bi-people" aria-hidden="true"></i> Usuarios</p-tab>
+    }
+    @if (canSee('access')) {
+      <p-tab value="access" data-tab="access"><i class="bi bi-terminal" aria-hidden="true"></i> Acceso</p-tab>
+    }
+    @if (canSee('providers')) {
+      <p-tab value="providers" data-tab="providers"><i class="bi bi-safe" aria-hidden="true"></i> Secretos</p-tab>
+    }
+    @if (canSee('vault')) {
+      <p-tab value="vault" data-tab="vault"><i class="bi bi-safe2" aria-hidden="true"></i> Caja fuerte</p-tab>
+    }
+    @if (canSee('audit')) {
+      <p-tab value="audit" data-tab="audit"><i class="bi bi-journal-text" aria-hidden="true"></i> Auditoría</p-tab>
+    }
+  </p-tablist>
+  <p-tabpanels>
+    <p-tabpanel value="profile">
+      <ng-template #content>
+        <app-profile-card />
+        @if (restricted()) {
+          <p-message severity="info" icon="bi bi-lock" data-viewer-notice>
+            Los conectores, los usuarios, los proveedores de secretos y la auditoría requieren otro rol (admin, editor o auditor).
+          </p-message>
+        }
+      </ng-template>
+    </p-tabpanel>
+    <p-tabpanel value="tokens">
+      <ng-template #content><app-api-tokens-settings /></ng-template>
+    </p-tabpanel>
+    <p-tabpanel value="policy">
+      <ng-template #content>
+        <app-inventory-policy-settings />
+        <app-expiry-warnings-settings style="display: block; margin-top: 1rem" />
+        <app-nat-forwards-settings style="display: block; margin-top: 1rem" />
+        <app-tag-colors-settings style="display: block; margin-top: 1rem" />
+      </ng-template>
+    </p-tabpanel>
+    @if (canSee('connectors')) {
+      <p-tabpanel value="connectors">
+        <ng-template #content><app-connectors-settings /></ng-template>
+      </p-tabpanel>
+    }
+    @if (canSee('access')) {
+      <p-tabpanel value="access">
+        <ng-template #content><app-access-settings /></ng-template>
+      </p-tabpanel>
+    }
+    @if (canSee('users')) {
+      <p-tabpanel value="users">
+        <ng-template #content><app-users-settings /></ng-template>
+      </p-tabpanel>
+    }
+    @if (canSee('providers')) {
+      <p-tabpanel value="providers">
+        <ng-template #content>
+          <p-card styleClass="block" data-block="providers">
+            <ng-template #title>Proveedores de secretos</ng-template>
+            <p class="text-muted intro">
+              En la base de datos solo hay referencias <code>secret://…</code>; los valores viven en el proveedor.
+            </p>
+            @switch (providers().state) {
+              @case ('loading') {
+                <p class="text-muted">Cargando…</p>
+              }
+              @case ('error') {
+                @if (providers(); as p) {
+                  @if (p.state === 'error') {
+                    <p-message severity="error" icon="bi bi-exclamation-triangle">{{ p.message }}</p-message>
+                  }
+                }
+              }
+              @case ('ready') {
+                @if (providers(); as p) {
+                  @if (p.state === 'ready') {
+                    <ul class="providers">
+                      @for (provider of p.value; track provider.id) {
+                        <li [attr.data-provider]="provider.id">
+                          <code class="id">{{ provider.id }}</code>
+                          @if (provider.healthy) {
+                            <p-tag value="Operativo" severity="success" icon="bi bi-check-circle" />
+                          } @else {
+                            <p-tag value="Con problemas" severity="danger" icon="bi bi-x-circle" />
+                          }
+                          <span class="text-muted">
+                            @for (c of provider.capabilities; track c; let last = $last) {
+                              {{ capabilityLabels[c] ?? c }}{{ last ? '' : ' · ' }}
+                            }
+                          </span>
+                        </li>
+                      } @empty {
+                        <li class="text-muted">No hay proveedores activos.</li>
+                      }
+                    </ul>
+                  }
+                }
+              }
+            }
+          </p-card>
+        </ng-template>
+      </p-tabpanel>
+    }
+    @if (canSee('vault')) {
+      <p-tabpanel value="vault">
+        <ng-template #content><app-vault-settings /></ng-template>
+      </p-tabpanel>
+    }
+    @if (canSee('audit')) {
+      <p-tabpanel value="audit">
+        <ng-template #content><app-audit-log /></ng-template>
+      </p-tabpanel>
+    }
+  </p-tabpanels>
+</p-tabs>

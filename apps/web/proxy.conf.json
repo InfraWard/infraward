@@ -1,0 +1,21 @@
+{
+  "/api": {
+    "target": "http://localhost:3000",
+    "secure": false,
+    "changeOrigin": false,
+    "pathRewrite": {
+      "^/api": ""
+    },
+    "xfwd": true
+  },
+  "/gateway": {
+    "target": "http://localhost:3010",
+    "secure": false,
+    "ws": true,
+    "changeOrigin": false,
+    "pathRewrite": {
+      "^/gateway": ""
+    },
+    "xfwd": true
+  }
+}

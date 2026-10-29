@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <title>InfraWard</title>
+  <!-- Paleta: teal #14B8A6, teal claro #5EEAD4, ámbar #F59E0B, fondo #0F172A -->
+  <defs>
+    <linearGradient id="shield" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5EEAD4"/>
+      <stop offset="1" stop-color="#14B8A6"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Fondo (quitar para versión transparente) -->
+  <rect width="256" height="256" rx="56" fill="#0F172A"/>
+
+  <!-- Escudo: curvas suaves, relleno sutil + contorno -->
+  <path d="M128 28 C150 40 176 46 204 48 C208 50 210 53 210 57 L210 122
+           C210 174 176 208 128 228 C80 208 46 174 46 122 L46 57
+           C46 53 48 50 52 48 C80 46 106 40 128 28 Z"
+        fill="#14B8A6" fill-opacity="0.08"
+        stroke="url(#shield)" stroke-width="12" stroke-linejoin="round"/>
+
+  <g transform="translate(0,-8)">
+  <!-- Jerarquía: raíz → 3 hijos (uno en alerta) -->
+  <g fill="none" stroke="#14B8A6" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M128 102 V124"/>
+    <path d="M90 146 V134 Q90 124 100 124 H156 Q166 124 166 134 V146"/>
+    <path d="M128 124 V146"/>
+  </g>
+
+  <!-- Nodos -->
+  <rect x="108" y="66"  width="40" height="40" rx="10" fill="url(#shield)"/>
+  <rect x="74"  y="146" width="32" height="32" rx="8"  fill="#14B8A6"/>
+  <rect x="112" y="146" width="32" height="32" rx="8"  fill="#14B8A6"/>
+  <rect x="150" y="146" width="32" height="32" rx="8"  fill="#F59E0B"/>
+  <!-- Punto de "hallazgo" en el nodo ámbar -->
+  <circle cx="166" cy="162" r="5" fill="#0F172A"/>
+  </g>
+</svg>

@@ -1,0 +1,316 @@
+{
+  "$schema": "http://cyclonedx.org/schema/bom-1.7.schema.json",
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.7",
+  "serialNumber": "urn:uuid:645d619f-8f01-411b-88a4-08fabc25686c",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-10-11T13:02:48+00:00",
+    "tools": {
+      "components": [
+        {
+          "type": "application",
+          "manufacturer": {
+            "name": "Aqua Security Software Ltd."
+          },
+          "group": "aquasecurity",
+          "name": "trivy",
+          "version": "0.75.0"
+        }
+      ]
+    },
+    "component": {
+      "bom-ref": "7ad73d46-03dd-4d00-8679-057918fcddf5",
+      "type": "application",
+      "name": "copy",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:SchemaVersion",
+          "value": "2"
+        }
+      ]
+    }
+  },
+  "components": [
+    {
+      "bom-ref": "ff7b3b5e-fc2e-4815-a33f-a584f9c52c1b",
+      "type": "operating-system",
+      "name": "debian",
+      "version": "13.7",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:Class",
+          "value": "os-pkgs"
+        },
+        {
+          "name": "aquasecurity:trivy:Type",
+          "value": "debian"
+        }
+      ]
+    },
+    {
+      "bom-ref": "pkg:npm/%40acme/util@1.2.3",
+      "type": "library",
+      "group": "@acme",
+      "name": "util",
+      "version": "1.2.3",
+      "hashes": [
+        {
+          "alg": "SHA-1",
+          "content": "5c2308636d6757290560075de2ef9d8a70365756"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "purl": "pkg:npm/%40acme/util@1.2.3",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:FilePath",
+          "value": "app/node_modules/@acme/util/package.json"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "@acme/util@1.2.3"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "node-pkg"
+        }
+      ]
+    },
+    {
+      "bom-ref": "pkg:npm/lodash@4.17.20",
+      "type": "library",
+      "name": "lodash",
+      "version": "4.17.20",
+      "hashes": [
+        {
+          "alg": "SHA-1",
+          "content": "7646e3e464cab9b53291fbf0cbe569822a58f7a9"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "purl": "pkg:npm/lodash@4.17.20",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:FilePath",
+          "value": "app/node_modules/lodash/package.json"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "lodash@4.17.20"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "node-pkg"
+        }
+      ]
+    },
+    {
+      "bom-ref": "pkg:deb/debian/adduser@3.152?arch=all&distro=debian-13.7",
+      "type": "library",
+      "supplier": {
+        "name": "Debian Adduser Developers <adduser@packages.debian.org>"
+      },
+      "name": "adduser",
+      "version": "3.152",
+      "purl": "pkg:deb/debian/adduser@3.152?arch=all&distro=debian-13.7",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "adduser@3.152"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "debian"
+        },
+        {
+          "name": "aquasecurity:trivy:SrcName",
+          "value": "adduser"
+        },
+        {
+          "name": "aquasecurity:trivy:SrcVersion",
+          "value": "3.152"
+        }
+      ]
+    },
+    {
+      "bom-ref": "pkg:deb/debian/apt@3.0.3?arch=arm64&distro=debian-13.7",
+      "type": "library",
+      "supplier": {
+        "name": "APT Development Team <deity@lists.debian.org>"
+      },
+      "name": "apt",
+      "version": "3.0.3",
+      "purl": "pkg:deb/debian/apt@3.0.3?arch=arm64&distro=debian-13.7",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "apt@3.0.3"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "debian"
+        },
+        {
+          "name": "aquasecurity:trivy:SrcName",
+          "value": "apt"
+        },
+        {
+          "name": "aquasecurity:trivy:SrcVersion",
+          "value": "3.0.3"
+        }
+      ]
+    },
+    {
+      "bom-ref": "pkg:deb/debian/base-files@13.8%2Bdeb13u7?arch=arm64&distro=debian-13.7",
+      "type": "library",
+      "supplier": {
+        "name": "Santiago Vila <sanvila@debian.org>"
+      },
+      "name": "base-files",
+      "version": "13.8+deb13u7",
+      "purl": "pkg:deb/debian/base-files@13.8%2Bdeb13u7?arch=arm64&distro=debian-13.7",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "base-files@13.8+deb13u7"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "debian"
+        },
+        {
+          "name": "aquasecurity:trivy:SrcName",
+          "value": "base-files"
+        },
+        {
+          "name": "aquasecurity:trivy:SrcVersion",
+          "value": "13.8+deb13u7"
+        }
+      ]
+    },
+    {
+      "bom-ref": "pkg:deb/debian/base-passwd@3.6.7?arch=arm64&distro=debian-13.7",
+      "type": "library",
+      "supplier": {
+        "name": "Shadow package maintainers <pkg-shadow-devel@lists.alioth.debian.org>"
+      },
+      "name": "base-passwd",
+      "version": "3.6.7",
+      "purl": "pkg:deb/debian/base-passwd@3.6.7?arch=arm64&distro=debian-13.7",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "base-passwd@3.6.7"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "debian"
+        },
+        {
+          "name": "aquasecurity:trivy:SrcName",
+          "value": "base-passwd"
+        },
+        {
+          "name": "aquasecurity:trivy:SrcVersion",
+          "value": "3.6.7"
+        }
+      ]
+    },
+    {
+      "bom-ref": "pkg:deb/debian/bash@5.2.37-2%2Bb10?arch=arm64&distro=debian-13.7",
+      "type": "library",
+      "supplier": {
+        "name": "Matthias Klose <doko@debian.org>"
+      },
+      "name": "bash",
+      "version": "5.2.37-2+b10",
+      "purl": "pkg:deb/debian/bash@5.2.37-2%2Bb10?arch=arm64&distro=debian-13.7",
+      "properties": [
+        {
+          "name": "aquasecurity:trivy:PkgID",
+          "value": "bash@5.2.37-2+b10"
+        },
+        {
+          "name": "aquasecurity:trivy:PkgType",
+          "value": "debian"
+        },
+        {
+          "name": "aquasecurity:trivy:SrcName",
+          "value": "bash"
+        },
+        {
+          "name": "aquasecurity:trivy:SrcRelease",
+          "value": "2"
+        },
+        {
+          "name": "aquasecurity:trivy:SrcVersion",
+          "value": "5.2.37"
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "ref": "7ad73d46-03dd-4d00-8679-057918fcddf5",
+      "dependsOn": [
+        "ff7b3b5e-fc2e-4815-a33f-a584f9c52c1b",
+        "pkg:npm/%40acme/util@1.2.3",
+        "pkg:npm/lodash@4.17.20"
+      ]
+    },
+    {
+      "ref": "ff7b3b5e-fc2e-4815-a33f-a584f9c52c1b",
+      "dependsOn": [
+        "pkg:deb/debian/apt@3.0.3?arch=arm64&distro=debian-13.7",
+        "pkg:deb/debian/bash@5.2.37-2%2Bb10?arch=arm64&distro=debian-13.7"
+      ]
+    },
+    {
+      "ref": "pkg:deb/debian/adduser@3.152?arch=all&distro=debian-13.7",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:deb/debian/apt@3.0.3?arch=arm64&distro=debian-13.7",
+      "dependsOn": [
+        "pkg:deb/debian/adduser@3.152?arch=all&distro=debian-13.7",
+        "pkg:deb/debian/base-passwd@3.6.7?arch=arm64&distro=debian-13.7"
+      ]
+    },
+    {
+      "ref": "pkg:deb/debian/base-files@13.8%2Bdeb13u7?arch=arm64&distro=debian-13.7",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:deb/debian/base-passwd@3.6.7?arch=arm64&distro=debian-13.7",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:deb/debian/bash@5.2.37-2%2Bb10?arch=arm64&distro=debian-13.7",
+      "dependsOn": [
+        "pkg:deb/debian/base-files@13.8%2Bdeb13u7?arch=arm64&distro=debian-13.7"
+      ]
+    },
+    {
+      "ref": "pkg:npm/%40acme/util@1.2.3",
+      "dependsOn": []
+    },
+    {
+      "ref": "pkg:npm/lodash@4.17.20",
+      "dependsOn": []
+    }
+  ],
+  "vulnerabilities": []
+}

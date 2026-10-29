@@ -1,0 +1,2 @@
+{"name":"datos","driver":"local","scope":"local","mountpoint":"/var/lib/docker/volumes/datos/_data","createdAt":"2026-10-11T00:31:11Z"}
+{"name":"huerfano","driver":"local","scope":"local","mountpoint":"/var/lib/docker/volumes/huerfano/_data","createdAt":"2026-10-11T00:31:11Z"}

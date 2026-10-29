@@ -1,0 +1,13 @@
+# Como fixtures/sshd, pero con Ubuntu 26.04 y sudo-rs (el sudo por defecto de Ubuntu ≥ 25.10):
+# sin comodines, espacios ni regex en los argumentos del sudoers. La imagen falla al construirse
+# si `sudo` no es sudo-rs.
+FROM docker.io/library/ubuntu:26.04
+RUN apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      openssh-server sudo-rs python3 \
+ && rm -rf /var/lib/apt/lists/* \
+ && mkdir -p /run/sshd \
+ && sudo -V 2>&1 | head -n 1 | grep -q '^sudo-rs' \
+ && command -v visudo
+EXPOSE 22
+CMD ["/usr/sbin/sshd", "-D", "-e"]

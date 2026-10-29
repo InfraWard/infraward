@@ -1,0 +1,5 @@
+{"id": 1, "name": "ejemplo.com", "status": 0, "htype": "vrt_hst", "webspace": 0, "parent": 0, "created": "2026-01-15", "owner": "cliente1", "certificate": 1}
+{"id": 2, "name": "blog.ejemplo.com", "status": 0, "htype": "vrt_hst", "webspace": 1, "parent": 1, "created": "2026-02-01", "owner": "cliente1", "certificate": null}
+{"id": 3, "name": "otro-ejemplo.net", "status": 0, "htype": "vrt_hst", "webspace": 1, "parent": 0, "created": "2026-03-01", "owner": "cliente1", "certificate": 1}
+{"id": 4, "name": "tienda.example.org", "status": 2, "htype": "vrt_hst", "webspace": 0, "parent": 0, "created": "2025-11-30", "owner": "admin", "certificate": 2}
+{"id": 5, "name": "redireccion.example.org", "status": 0, "htype": "std_fwd", "webspace": 4, "parent": 0, "created": "2026-04-01", "owner": "admin", "certificate": null}

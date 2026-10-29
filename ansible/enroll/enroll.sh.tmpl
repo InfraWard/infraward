@@ -1,0 +1,971 @@
+#!/usr/bin/env bash
+# Script de alta de InfraWard (docs/DESIGN.md §7).
+#
+# La API lo genera para un único servidor. Dos modos:
+#   - online:   curl -fsSL <url>/enroll/<token> | sudo bash
+#               Al terminar avisa a la API (POST /enroll/<token>/done) con las huellas de las host keys.
+#   - embedded: echo '<script en base64>' | base64 -d | gunzip | sudo bash
+#               Para servidores que no llegan a la API (VPN, NAT). No lleva token ni avisa a nadie:
+#               imprime las huellas de las host keys para pegarlas en InfraWard.
+# Opciones: --install-sudo instala sudo si falta (Proxmox no lo trae); solo si se pide.
+#
+# Crea el usuario dedicado `inventory`, el ayudante de root `infraward-query` (lista cerrada de
+# consultas de SOLO LECTURA, salvo `pct-exec`) y un sudoers que solo permite ese ayudante (nunca
+# ALL; vale igual con sudo y con sudo-rs). Dos formas de acceso (DESIGN §6, §7):
+#   - static_key:     instala la clave pública del asset en authorized_keys (con `restrict`).
+#   - ca_certificate: NO instala ninguna clave. Configura sshd para que `inventory` acepte
+#                     certificados de vida corta firmados por la CA SSH de InfraWard
+#                     (TrustedUserCAKeys) y solo con el principal `inventory`
+#                     (AuthorizedPrincipalsFile). Valida con `sshd -t` antes de recargar y, si
+#                     algo falla, deja la configuración como estaba. Después quita la clave
+#                     estática de ESTE asset si la tenía (migración desde static_key).
+# Acceso interactivo de administración (opcional, solo en modo CA; DESIGN §7): con `operator`
+# configura la cuenta `infraward-admin` con sudo, que solo entra con certificados de la CA con
+# el principal de rol `infraward-operators` (los emite la API tras MFA para la terminal); con
+# `none` lo retira; con `keep` no toca lo que haya. Nunca usa el usuario `inventory`.
+# Cada asset solo toca su línea de authorized_keys (comentario inventory@infraward:<asset-id>).
+# No contiene secretos: solo claves públicas y, en modo online, el token y la URL de la API.
+#
+# Idempotente: volver a ejecutarlo actualiza el sudoers y la CA sin duplicar nada. Todo va
+# dentro de main(), que se invoca en la última línea: si la descarga se corta, bash no ejecuta
+# nada.
+
+main() {
+  set -euo pipefail
+  umask 077
+  export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+  export LC_ALL=C
+  # Ayudante de root (lo usan install_query_helper y write_sudoers) y el de Plesk de la v3.
+  QUERY_HELPER=/usr/local/libexec/infraward/infraward-query
+  LEGACY_PLESK_HELPER=/usr/local/libexec/infraward/plesk-query
+  # Acceso interactivo de administración (configure_admin_access / remove_admin_access).
+  ADMIN_USER=infraward-admin
+  ADMIN_PRINCIPAL=infraward-operators
+  ADMIN_DROPIN=/etc/ssh/sshd_config.d/01-infraward-admin.conf
+  ADMIN_SUDOERS=/etc/sudoers.d/infraward-admin
+  ADMIN_PRINCIPALS=/etc/ssh/infraward/principals/infraward-admin
+  ADMIN_VERSION_FILE=/etc/infraward/admin-access-version
+  ADMIN_CREATED_MARK=/etc/infraward/admin-access-created-user
+
+  local mode='__INFRAWARD_MODE__'
+  local api_url='__INFRAWARD_API_URL__'
+  local token='__INFRAWARD_TOKEN__'
+  local public_key='__INFRAWARD_PUBLIC_KEY__'
+  local key_comment='__INFRAWARD_KEY_COMMENT__'
+  local version='__INFRAWARD_SUDOERS_VERSION__'
+  local auth='__INFRAWARD_AUTH__'
+  local ca_keys='__INFRAWARD_CA_KEYS__'
+  local ca_version='__INFRAWARD_CA_VERSION__'
+  # Cuándo generó la API este script (epoch). En modo CA, un reloj atrasado hace que sshd rechace
+  # los certificados («not yet valid»): mejor pararse antes de tocar nada.
+  local issued_at='__INFRAWARD_ISSUED_AT__'
+  local admin_access='__INFRAWARD_ADMIN_ACCESS__'
+  local admin_version='__INFRAWARD_ADMIN_ACCESS_VERSION__'
+  local user=inventory
+  local sudoers_file=/etc/sudoers.d/infraward-inventory
+  local version_file=/etc/infraward/sudoers-version
+
+  local install_sudo=0 arg
+  for arg in "$@"; do
+    case $arg in
+      --install-sudo) install_sudo=1 ;;
+      *) die "opción desconocida: '$arg' (solo se admite --install-sudo)" ;;
+    esac
+  done
+
+  case $auth in
+    static_key | ca_certificate) ;;
+    *) die "modo de acceso desconocido: '$auth'" ;;
+  esac
+  case $admin_access in
+    keep | none) ;;
+    operator) [ "$auth" = ca_certificate ] || die "el acceso de administración requiere el modo CA" ;;
+    *) die "acceso de administración desconocido: '$admin_access'" ;;
+  esac
+  [ "$(id -u)" -eq 0 ] || die "hay que ejecutarlo como root"
+  if [ "$auth" = ca_certificate ]; then
+    local now
+    now=$(date -u +%s)
+    if [ "$now" -lt $((issued_at - 300)) ]; then
+      die "el reloj del servidor va atrasado ($(date -u '+%F %T') UTC; el comando se generó $(((issued_at - now) / 60)) min después). Los certificados duran minutos y sshd los rechazaría: sincroniza la hora (p. ej. 'chronyc makestep' o 'timedatectl set-ntp true') y vuelve a ejecutar el comando"
+    fi
+  fi
+  if ! command -v sudo >/dev/null || ! command -v visudo >/dev/null; then
+    [ "$install_sudo" -eq 1 ] ||
+      die "falta 'sudo' (Proxmox no lo trae de serie); instálalo o vuelve a ejecutar el comando con --install-sudo"
+    install_sudo_package
+  fi
+  local cmd required=(ssh-keygen useradd usermod getent install awk)
+  [ "$mode" = online ] && required+=(curl)
+  for cmd in "${required[@]}"; do
+    command -v "$cmd" >/dev/null || die "falta '$cmd'; instálalo y vuelve a ejecutar el comando"
+  done
+  command -v sshd >/dev/null || die "no hay servidor SSH (sshd) instalado"
+  command -v python3 >/dev/null ||
+    log "AVISO: falta python3; la verificación funcionará, pero la recolección (Ansible) no hasta que lo instales"
+
+  log "Usuario '$user'"
+  if ! id "$user" >/dev/null 2>&1; then
+    useradd --system --create-home --home-dir "/home/$user" --shell /bin/sh \
+      --comment "InfraWard (inventario de solo lectura)" "$user"
+  fi
+  [ "$(id -u "$user")" -ne 0 ] || die "el usuario '$user' tiene uid 0; no se toca"
+  # '*' y no '!': sin contraseña posible, pero el login con clave sigue funcionando.
+  usermod -p '*' "$user"
+
+  local home auth_keys
+  home=$(getent passwd "$user" | cut -d: -f6)
+  auth_keys="$home/.ssh/authorized_keys"
+  if [ "$auth" = static_key ]; then
+    log "Clave pública en authorized_keys"
+    # ~/.ssh es del usuario de inventario: se crea y se escribe como él, nunca como root.
+    check_ssh_paths "$home" "$user"
+    # Un usuario adoptado sin home: se crea como root (su padre no lo controla él).
+    [ -d "$home" ] || install -d -m 750 -o "$user" -g "$(id -gn "$user")" "$home"
+    as_user "$user" mkdir -p -m 700 "$home/.ssh"
+    as_user "$user" chmod 700 "$home/.ssh"
+    # Sustituye la línea de este asset (si la hay) por la actual: nunca duplica ni toca otras.
+    # `restrict`: sin pty, reenvíos ni agente; el inventario no los necesita.
+    replace_key_line "$auth_keys" "$key_comment" "restrict $public_key" "$user"
+  fi
+
+  install_query_helper
+  log "sudoers acotado (versión $version): solo el ayudante $QUERY_HELPER"
+  write_sudoers "$user" "$sudoers_file" "$version"
+  install -d -m 755 /etc/infraward
+  printf '%s\n' "$version" >"$version_file"
+  chmod 644 "$version_file"
+
+  if [ "$auth" = ca_certificate ]; then
+    log "CA SSH de InfraWard (versión $ca_version): certificados de vida corta, sin claves estáticas"
+    configure_ssh_ca "$user" "$ca_keys" "$ca_version"
+    # Solo cuando sshd ya acepta los certificados: la clave estática de este asset sobra.
+    if [ -e "$auth_keys" ] || [ -L "$auth_keys" ]; then
+      check_ssh_paths "$home" "$user"
+      replace_key_line "$auth_keys" "$key_comment" "" "$user"
+    fi
+  fi
+
+  case $admin_access in
+    operator)
+      log "Acceso interactivo de administración (versión $admin_version): cuenta $ADMIN_USER, solo con certificados de la CA"
+      configure_admin_access "$user" "$admin_version"
+      ;;
+    none) remove_admin_access ;;
+  esac
+
+  warn_sshd_restrictions "$user"
+
+  if [ "$mode" = embedded ]; then
+    local fingerprints
+    fingerprints=$(host_keys_text)
+    log "Hecho. Pega en InfraWard las huellas de las host keys para confirmar el alta:"
+    printf '\n%s\n%s\n%s\n\n' '----- infraward host keys -----' "$fingerprints" '----- fin -----'
+    return 0
+  fi
+
+  log "Avisando a InfraWard"
+  local hostkeys
+  hostkeys=$(host_keys_json)
+  curl -fsS -X POST -H 'Content-Type: application/json' \
+    --data "{\"hostKeys\":[$hostkeys]}" \
+    "$api_url/enroll/$token/done" >/dev/null ||
+    die "no se pudo avisar a la API; si el token ha caducado, genera un comando nuevo"
+
+  log "Hecho. InfraWard verificará ahora la conexión por SSH."
+}
+
+# Ejecuta un comando como <usuario> (sin su contraseña: el script corre como root). Lo que hay en
+# su home lo controla él: escribir ahí como root seguiría un enlace simbólico que él haya puesto
+# (p. ej. ~/.ssh -> /root/.ssh) y le daría ficheros de root. Como él, el kernel no le deja.
+as_user() {
+  local user=$1
+  shift
+  if command -v runuser >/dev/null 2>&1; then
+    (cd / && runuser -u "$user" -- "$@")
+  elif command -v setpriv >/dev/null 2>&1; then
+    (cd / && setpriv --reuid="$user" --regid="$(id -g "$user")" --init-groups -- "$@")
+  else
+    # su no pasa argumentos igual en todas partes (util-linux, BusyBox): una sola orden, citada
+    # para bash (el script ya exige bash).
+    (cd / && su -s "$(command -v bash)" "$user" -c "$(printf '%q ' "$@")")
+  fi
+}
+
+# Para avisar con claridad (y no solo fallar al escribir como el usuario): ~/.ssh y
+# authorized_keys no pueden ser enlaces simbólicos, ni de otro dueño, ni authorized_keys un
+# fichero con más de un enlace duro.
+check_ssh_paths() {
+  local home=$1 user=$2
+  local dir="$home/.ssh" file="$home/.ssh/authorized_keys"
+  if [ -L "$dir" ]; then
+    die "$dir es un enlace simbólico; no se sigue. Revisa ese servidor: puede que alguien haya entrado como '$user'"
+  fi
+  if [ -e "$dir" ]; then
+    [ -d "$dir" ] || die "$dir no es un directorio"
+    [ "$(stat -c %u "$dir")" = "$(id -u "$user")" ] || die "$dir no es de '$user'"
+  fi
+  if [ -L "$file" ]; then
+    die "$file es un enlace simbólico; no se sigue. Revisa ese servidor: puede que alguien haya entrado como '$user'"
+  fi
+  if [ -e "$file" ]; then
+    [ -f "$file" ] || die "$file no es un fichero normal"
+    [ "$(stat -c %h "$file")" = 1 ] || die "$file tiene varios enlaces duros; no se toca"
+    [ "$(stat -c %u "$file")" = "$(id -u "$user")" ] || die "$file no es de '$user'"
+  fi
+}
+
+# Sustituye en authorized_keys la línea que termina en " <comentario>" por <línea> (vacía =
+# solo quitarla). Las demás líneas (otros assets, las del administrador) quedan intactas. Todo
+# como <usuario>: fichero temporal en su ~/.ssh (600) y `mv`, que sustituye la entrada sin
+# seguir un enlace que aparezca entre medias.
+replace_key_line() {
+  local file=$1 comment=$2 line=$3 user=$4
+  # shellcheck disable=SC2016 # el script es para el sh del usuario: sus $ no se expanden aquí
+  as_user "$user" sh -c '
+    set -eu
+    umask 077
+    f=$1 c=" $2" l=$3
+    t=$(mktemp "$f.XXXXXX")
+    trap '\''rm -f "$t"'\'' EXIT
+    if [ -f "$f" ]; then
+      awk -v c="$c" '\''length($0) < length(c) || substr($0, length($0) - length(c) + 1) != c'\'' "$f" >"$t"
+    fi
+    [ -z "$l" ] || printf "%s\n" "$l" >>"$t"
+    chmod 600 "$t"
+    mv -f "$t" "$f"
+    trap - EXIT
+  ' sh "$file" "$comment" "$line" || die "no se pudo escribir $file como '$user'"
+}
+
+# `sshd -t`. Si falta el directorio de separación de privilegios (/run/sshd en Debian: lo crea
+# ssh.service al arrancar, y tras un reinicio con activación por socket aún no existe), se crea como
+# lo haría la unidad (root, 0755) y se repite. Si sigue fallando, imprime el error y devuelve 1.
+sshd_test() {
+  local out dir
+  out=$(sshd -t 2>&1) && return 0
+  # Sin `\r`: con la salida en una terminal, sshd acaba las líneas en CRLF.
+  dir=$(printf '%s\n' "$out" | tr -d '\r' | sed -n 's|^Missing privilege separation directory: \(/[A-Za-z0-9_./-]*\)$|\1|p' | head -1)
+  if [ -n "$dir" ] && [ ! -e "$dir" ]; then
+    install -d -m 0755 -o root -g root "$dir"
+    out=$(sshd -t 2>&1) && return 0
+  fi
+  printf '%s\n' "$out"
+  return 1
+}
+
+# Configura sshd para que <usuario> acepte certificados de la CA de InfraWard con el principal
+# <usuario> y nada más. Todo dentro de `Match User`: no afecta a otros usuarios ni a otra CA que
+# ya tenga el servidor. Si `sshd -t` falla o la configuración efectiva no es la nuestra (falta el
+# Include de sshd_config.d, u otro fichero anterior fija esos valores), se restaura lo anterior y
+# no se recarga. El sshd_config principal no se toca nunca.
+configure_ssh_ca() {
+  local user=$1 keys=$2 ca_version=$3
+  local dir=/etc/ssh/infraward
+  local ca_file=$dir/trusted_user_ca_keys
+  local principals=$dir/principals
+  local dropin_dir=/etc/ssh/sshd_config.d
+  local dropin=$dropin_dir/00-infraward.conf
+  local version_file=/etc/infraward/ssh-ca-version
+  [ -d "$dropin_dir" ] ||
+    die "no existe $dropin_dir; añade 'Include $dropin_dir/*.conf' al principio de /etc/ssh/sshd_config y vuelve a ejecutar el script"
+
+  # Copia de lo que haya para poder dejarlo como estaba.
+  local backup f saved
+  backup=$(mktemp -d)
+  for f in "$ca_file" "$principals/$user" "$dropin" "$version_file"; do
+    if [ -e "$f" ]; then cp -p "$f" "$backup/$(printf '%s' "$f" | tr / _)"; fi
+  done
+  restore_ssh_ca() {
+    for f in "$ca_file" "$principals/$user" "$dropin" "$version_file"; do
+      saved="$backup/$(printf '%s' "$f" | tr / _)"
+      if [ -e "$saved" ]; then cp -p "$saved" "$f"; else rm -f "$f"; fi
+    done
+    rm -rf "$backup"
+  }
+
+  local tmp
+  install -d -m 755 "$dir" "$principals"
+  tmp=$(mktemp)
+  {
+    printf '# infraward-ssh-ca-version: %s\n' "$ca_version"
+    printf '# CA SSH de InfraWard. Generado por el script de alta: no editar.\n'
+    printf '%s\n' "$keys"
+  } >"$tmp"
+  install -m 644 -o root -g root "$tmp" "$ca_file"
+  printf '%s\n' "$user" >"$tmp"
+  install -m 644 -o root -g root "$tmp" "$principals/$user"
+  {
+    printf '# infraward-ssh-ca-version: %s\n' "$ca_version"
+    printf '# Generado por el script de alta de InfraWard: no editar. El usuario %s solo entra\n' "$user"
+    printf '# con certificados de vida corta de la CA de InfraWard y con el principal %s.\n' "$user"
+    printf 'Match User %s\n' "$user"
+    printf '    TrustedUserCAKeys %s\n' "$ca_file"
+    printf '    AuthorizedPrincipalsFile %s/%%u\n' "$principals"
+    printf '    PermitTTY no\n'
+    printf '    DisableForwarding yes\n'
+    printf '    PermitUserRC no\n'
+  } >"$tmp"
+  install -m 644 -o root -g root "$tmp" "$dropin"
+  rm -f "$tmp"
+
+  local err
+  if ! err=$(sshd_test); then
+    restore_ssh_ca
+    die "la configuración de sshd no es válida; se ha dejado como estaba: $(printf '%s' "$err" | head -1)"
+  fi
+  local effective
+  if ! effective=$(sshd -T -C "user=$user,host=localhost,addr=127.0.0.1" 2>/dev/null); then
+    restore_ssh_ca
+    die "no se pudo leer la configuración efectiva de sshd; se ha dejado como estaba"
+  fi
+  if ! printf '%s\n' "$effective" | grep -qixF "trustedusercakeys $ca_file" ||
+    ! printf '%s\n' "$effective" | grep -qixF "authorizedprincipalsfile $principals/%u"; then
+    restore_ssh_ca
+    die "sshd no aplica $dropin (¿falta 'Include $dropin_dir/*.conf' al principio de sshd_config, u otro fichero lo fija antes?); se ha dejado como estaba"
+  fi
+
+  install -d -m 755 /etc/infraward
+  printf '%s\n' "$ca_version" >"$version_file"
+  chmod 644 "$version_file"
+  rm -rf "$backup"
+  reload_sshd
+}
+
+# Acceso interactivo de administración (DESIGN §7), variante `operator`: la cuenta
+# `infraward-admin` con sudo sin contraseña (el certificado dura minutos, se emite tras MFA y
+# queda auditado), que solo entra con certificados de la CA de InfraWard con el principal de rol
+# `infraward-operators`: sin claves (`AuthorizedKeysFile none`) ni contraseñas. Quién recibe esos
+# certificados lo decide InfraWard: dar o quitar acceso a una persona no toca el servidor.
+# Su propio drop-in (`Match User infraward-admin`): la configuración de `inventory` no cambia (se
+# comprueba comparando su configuración efectiva antes y después). Idempotente: si nada cambia
+# no se reescribe ningún fichero ni se recarga sshd. Si `sshd -t`, visudo o la configuración
+# efectiva fallan, se deja todo como estaba.
+configure_admin_access() {
+  local inventory_user=$1 admin_version=$2
+  local ca_file=/etc/ssh/infraward/trusted_user_ca_keys
+  local principals_dir
+  principals_dir=$(dirname "$ADMIN_PRINCIPALS")
+  [ -s "$ca_file" ] || die "falta $ca_file (el acceso de administración requiere el modo CA)"
+
+  local backup f saved created=0
+  backup=$(mktemp -d)
+  for f in "$ADMIN_DROPIN" "$ADMIN_SUDOERS" "$ADMIN_PRINCIPALS" "$ADMIN_VERSION_FILE"; do
+    if [ -e "$f" ]; then cp -p "$f" "$backup/$(printf '%s' "$f" | tr / _)"; fi
+  done
+  restore_admin_access() {
+    for f in "$ADMIN_DROPIN" "$ADMIN_SUDOERS" "$ADMIN_PRINCIPALS" "$ADMIN_VERSION_FILE"; do
+      saved="$backup/$(printf '%s' "$f" | tr / _)"
+      if [ -e "$saved" ]; then cp -p "$saved" "$f"; else rm -f "$f"; fi
+    done
+    if [ "$created" -eq 1 ]; then
+      userdel -r "$ADMIN_USER" >/dev/null 2>&1 || true
+      rm -f "$ADMIN_CREATED_MARK"
+    fi
+    rm -rf "$backup"
+  }
+
+  # Configuración efectiva de inventory antes de tocar nada: no puede cambiar.
+  local inventory_before
+  inventory_before=$(sshd -T -C "user=$inventory_user,host=localhost,addr=127.0.0.1" 2>/dev/null) ||
+    die "no se pudo leer la configuración efectiva de sshd"
+
+  if ! id "$ADMIN_USER" >/dev/null 2>&1; then
+    useradd --create-home --home-dir "/home/$ADMIN_USER" --shell /bin/bash \
+      --comment "InfraWard (administración interactiva)" "$ADMIN_USER"
+    created=1
+    install -d -m 755 /etc/infraward
+    printf '%s\n' "$ADMIN_USER" >"$ADMIN_CREATED_MARK"
+    chmod 644 "$ADMIN_CREATED_MARK"
+  fi
+  if [ "$(id -u "$ADMIN_USER")" -eq 0 ]; then
+    restore_admin_access
+    die "el usuario '$ADMIN_USER' tiene uid 0; no se toca"
+  fi
+  # '*' y no '!': sin contraseña posible, pero sin bloquear la cuenta (con UsePAM=no, sshd no deja
+  # entrar a una cuenta bloqueada ni con certificado). Desbloquea si se retiró con sesiones vivas.
+  usermod -p '*' -e '' "$ADMIN_USER" 2>/dev/null || usermod -p '*' "$ADMIN_USER"
+
+  local changed=0 tmp
+  # sudoers: el nombre temporal lleva un punto (sudo lo ignora mientras se valida).
+  tmp=$(mktemp /etc/sudoers.d/.infraward-admin.XXXXXX)
+  {
+    printf '# infraward-admin-access-version: %s\n' "$admin_version"
+    printf '# Generado por el script de alta de InfraWard: no editar. Acceso interactivo de\n'
+    printf '# administración: la cuenta %s solo entra con certificados de pocos minutos de la\n' "$ADMIN_USER"
+    printf '# CA de InfraWard, emitidos tras MFA a las personas autorizadas (ver %s).\n' "$ADMIN_DROPIN"
+    printf '%s ALL=(ALL:ALL) NOPASSWD: ALL\n' "$ADMIN_USER"
+  } >"$tmp"
+  chmod 440 "$tmp"
+  if ! visudo -cqf "$tmp"; then
+    rm -f "$tmp"
+    restore_admin_access
+    die "el sudoers de $ADMIN_USER no es válido; se ha dejado todo como estaba"
+  fi
+  if cmp -s "$tmp" "$ADMIN_SUDOERS"; then rm -f "$tmp"; else mv -f "$tmp" "$ADMIN_SUDOERS"; changed=1; fi
+
+  install -d -m 755 "$principals_dir"
+  tmp=$(mktemp)
+  printf '%s\n' "$ADMIN_PRINCIPAL" >"$tmp"
+  install_if_changed "$tmp" "$ADMIN_PRINCIPALS" 644 && changed=1
+  {
+    printf '# infraward-admin-access-version: %s\n' "$admin_version"
+    printf '# Generado por el script de alta de InfraWard: no editar. La cuenta %s solo entra\n' "$ADMIN_USER"
+    printf '# con certificados de vida corta de la CA de InfraWard con el principal %s:\n' "$ADMIN_PRINCIPAL"
+    printf '# ni claves en authorized_keys ni contraseñas.\n'
+    printf 'Match User %s\n' "$ADMIN_USER"
+    printf '    TrustedUserCAKeys %s\n' "$ca_file"
+    printf '    AuthorizedPrincipalsFile %s/%%u\n' "$principals_dir"
+    printf '    AuthorizedKeysFile none\n'
+    printf '    PasswordAuthentication no\n'
+    printf '    KbdInteractiveAuthentication no\n'
+    printf '    PermitTTY yes\n'
+    printf '    DisableForwarding yes\n'
+    printf '    PermitUserRC no\n'
+  } >"$tmp"
+  install_if_changed "$tmp" "$ADMIN_DROPIN" 644 && changed=1
+  rm -f "$tmp"
+
+  local err effective inventory_after
+  if ! err=$(sshd_test); then
+    restore_admin_access
+    die "la configuración de sshd no es válida; se ha dejado como estaba: $(printf '%s' "$err" | head -1)"
+  fi
+  if ! effective=$(sshd -T -C "user=$ADMIN_USER,host=localhost,addr=127.0.0.1" 2>/dev/null); then
+    restore_admin_access
+    die "no se pudo leer la configuración efectiva de sshd; se ha dejado como estaba"
+  fi
+  local want
+  for want in "trustedusercakeys $ca_file" "authorizedprincipalsfile $principals_dir/%u" \
+    "authorizedkeysfile none" "passwordauthentication no" "permittty yes"; do
+    if ! printf '%s\n' "$effective" | grep -qixF "$want"; then
+      restore_admin_access
+      die "sshd no aplica $ADMIN_DROPIN ('$want'; ¿otro fichero lo fija antes?); se ha dejado como estaba"
+    fi
+  done
+  # OpenSSH < 8.7 la llama challengeresponseauthentication.
+  if ! printf '%s\n' "$effective" | grep -qixE '(kbdinteractive|challengeresponse)authentication no'; then
+    restore_admin_access
+    die "sshd no desactiva el teclado interactivo para $ADMIN_USER; se ha dejado como estaba"
+  fi
+  inventory_after=$(sshd -T -C "user=$inventory_user,host=localhost,addr=127.0.0.1" 2>/dev/null) || true
+  if [ "$inventory_before" != "$inventory_after" ]; then
+    restore_admin_access
+    die "la configuración de $ADMIN_USER cambiaría la de $inventory_user; se ha dejado como estaba"
+  fi
+
+  tmp=$(mktemp)
+  printf '%s\n' "$admin_version" >"$tmp"
+  install -d -m 755 /etc/infraward
+  install_if_changed "$tmp" "$ADMIN_VERSION_FILE" 644 && changed=1
+  rm -f "$tmp"
+  rm -rf "$backup"
+  if [ "$changed" -eq 1 ]; then reload_sshd; else log "Acceso de administración ya al día (sin cambios)"; fi
+}
+
+# Retira el acceso de administración: drop-in, sudoers y principales. La cuenta solo se borra si
+# la creó InfraWard y no tiene procesos; si los tiene (una sesión abierta), se bloquea y caduca.
+remove_admin_access() {
+  local had=0 f
+  for f in "$ADMIN_DROPIN" "$ADMIN_SUDOERS" "$ADMIN_PRINCIPALS" "$ADMIN_VERSION_FILE"; do
+    if [ -e "$f" ]; then rm -f "$f"; had=1; fi
+  done
+  if [ -f "$ADMIN_CREATED_MARK" ] && id "$ADMIN_USER" >/dev/null 2>&1; then
+    if [ "$(id -u "$ADMIN_USER")" -ne 0 ] && ! pgrep -u "$ADMIN_USER" >/dev/null 2>&1 &&
+      userdel -r "$ADMIN_USER" >/dev/null 2>&1; then
+      rm -f "$ADMIN_CREATED_MARK"
+    else
+      usermod -L -e 1 "$ADMIN_USER" 2>/dev/null || usermod -L "$ADMIN_USER" || true
+      log "AVISO: $ADMIN_USER tiene procesos en marcha: se ha bloqueado; vuelve a ejecutar el script para borrarla"
+    fi
+    had=1
+  fi
+  if [ "$had" -eq 0 ]; then return 0; fi
+  log "Acceso interactivo de administración retirado"
+  local err
+  err=$(sshd_test) || die "la configuración de sshd no es válida tras retirar el acceso de administración: $(printf '%s' "$err" | head -1)"
+  reload_sshd
+}
+
+# Instala <tmp> en <destino> (root:root, <modo>) solo si cambia. Devuelve 0 si lo instaló.
+install_if_changed() {
+  local tmp=$1 dest=$2 mode=$3
+  if [ -f "$dest" ] && cmp -s "$tmp" "$dest"; then return 1; fi
+  install -m "$mode" -o root -g root "$tmp" "$dest"
+}
+
+# Recarga sshd para que lea la configuración nueva (las conexiones abiertas siguen).
+reload_sshd() {
+  if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+    local unit
+    for unit in ssh sshd; do
+      if systemctl is-active --quiet "$unit.service" 2>/dev/null; then
+        systemctl reload "$unit.service" && return 0
+      fi
+    done
+    # Activación por socket: cada conexión arranca un sshd que lee la configuración.
+    if systemctl is-active --quiet ssh.socket 2>/dev/null; then return 0; fi
+  fi
+  if command -v rc-service >/dev/null 2>&1 && rc-service sshd status >/dev/null 2>&1; then
+    rc-service sshd reload && return 0
+  fi
+  local pidfile
+  for pidfile in /run/sshd.pid /var/run/sshd.pid; do
+    if [ -s "$pidfile" ]; then
+      kill -HUP "$(cat "$pidfile")" && return 0
+    fi
+  done
+  die "no se pudo recargar sshd; recárgalo a mano (p. ej. systemctl reload ssh)"
+}
+
+# Instala sudo con el gestor de paquetes que haya. Solo con --install-sudo (opt-in explícito).
+install_sudo_package() {
+  log "Instalando sudo (--install-sudo)"
+  if command -v apt-get >/dev/null; then
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -q sudo >/dev/null ||
+      { apt-get update -q >/dev/null && DEBIAN_FRONTEND=noninteractive apt-get install -y -q sudo >/dev/null; }
+  elif command -v dnf >/dev/null; then
+    dnf install -y -q sudo >/dev/null
+  elif command -v yum >/dev/null; then
+    yum install -y -q sudo >/dev/null
+  elif command -v apk >/dev/null; then
+    apk add --quiet sudo >/dev/null
+  elif command -v zypper >/dev/null; then
+    zypper --non-interactive --quiet install sudo >/dev/null
+  else
+    die "no se reconoce el gestor de paquetes; instala sudo a mano"
+  fi || die "no se pudo instalar sudo"
+  if ! command -v sudo >/dev/null || ! command -v visudo >/dev/null; then
+    die "se instaló el paquete sudo, pero no se encuentran 'sudo' y 'visudo'"
+  fi
+}
+
+# sudoers v4: una sola regla, el ayudante de root. Sin argumentos en la regla, sudo (y sudo-rs)
+# permite cualquiera: el filtro es el ayudante, que solo admite su lista cerrada de consultas.
+write_sudoers() {
+  local user=$1 file=$2 version=$3
+  local tmp
+  # El nombre lleva un punto: sudo ignora ese fichero mientras se valida.
+  tmp=$(mktemp /etc/sudoers.d/.infraward.XXXXXX)
+  {
+    cat <<EOF
+# infraward-sudoers-version: $version
+# Generado por el script de alta de InfraWard. No editar: se reescribe al volver a ejecutarlo.
+# Usuario de inventario: nunca ALL, solo el ayudante $QUERY_HELPER
+# (root:root 0755), que admite una lista CERRADA de consultas de solo lectura, valida cada
+# argumento y ejecuta el comando sin shell en medio. Así vale igual con sudo y con sudo-rs, que
+# no admite comodines, espacios ni expresiones regulares en los argumentos.
+#
+# AVISO: en nodos Proxmox y hosts Docker la lista es más documentación de intenciones que una
+# barrera real:
+#   - 'pct-exec' ejecuta como root dentro de los CT del nodo (y un CT privilegiado no aísla del
+#     host): así se recogen con Ansible; el ayudante valida el vmid, no el comando.
+#   - Docker: solo consultas de lectura (y 'docker save' de una imagen por su id, a la salida
+#     estándar, para escanearla), pero 'docker inspect' expone la configuración de los
+#     contenedores y cualquier acceso al demonio de Docker equivale a root. No añadas '$user' al
+#     grupo docker.
+# En servidores sin Proxmox ni Docker el ayudante sí limita lo que puede hacer el usuario.
+EOF
+    # sudo-rs (Ubuntu ≥ 25.10) no conoce estas opciones (nunca pide tty ni da el sermón).
+    sudo_is_rs || printf 'Defaults:%s !requiretty, !lecture\n' "$user"
+    printf '%s ALL=(root) NOPASSWD: %s\n' "$user" "$QUERY_HELPER"
+  } >"$tmp"
+  chmod 440 "$tmp"
+  if ! visudo -cqf "$tmp"; then
+    rm -f "$tmp"
+    die "el sudoers generado no es válido; no se ha cambiado nada"
+  fi
+  mv -f "$tmp" "$file"
+}
+
+# sudo-rs (el sudo en Rust de Ubuntu ≥ 25.10): sin comodines ni espacios en los argumentos de
+# las reglas, ni expresiones regulares, ni `Defaults !requiretty`. `sudo -V` imprime
+# «sudo-rs <versión>» (en stderr).
+sudo_is_rs() {
+  sudo -V 2>&1 | head -n 1 | grep -q '^sudo-rs'
+}
+
+# Falla si <dir> o alguno de sus padres no es de root o lo puede escribir alguien más (cualquiera
+# o un grupo que no es root): podría sustituir el ayudante.
+check_root_only_path() {
+  local d=$1 uid gid mode
+  while :; do
+    read -r uid gid mode <<<"$(stat -c '%u %g %a' "$d")" || die "no se puede comprobar $d"
+    if [ "$uid" -ne 0 ] || (((8#$mode & 8#002) != 0)) ||
+      { (((8#$mode & 8#020) != 0)) && [ "$gid" -ne 0 ]; }; then
+      die "$d lo puede modificar alguien que no es root (dueño $uid, grupo $gid, permisos $mode); no se instala el ayudante"
+    fi
+    [ "$d" = / ] && break
+    d=$(dirname "$d")
+  done
+}
+
+# Ayudante de root `infraward-query <consulta> [argumentos…]` (sudoers v4, DESIGN §7). Lista
+# CERRADA de consultas, la misma que PRIVILEGED_QUERIES en packages/connectors/src/privileged.ts
+# (un test de la API ejecuta este ayudante con binarios falsos y compara una a una, y otro
+# intenta inyectar argumentos). Valida aridad y cada argumento ANTES de ejecutar nada (si algo
+# no cuadra, sale con 64) y ejecuta el binario con `exec`, sin shell en medio. Las consultas de
+# Plesk nunca leen contraseñas ni claves privadas. Se instala siempre: Docker o Plesk pueden
+# llegar después (los binarios se buscan al ejecutar, en un PATH fijo de root).
+install_query_helper() {
+  local bash_path dir tmp
+  bash_path=$(command -v bash) || die "falta bash"
+  [[ $bash_path =~ ^/[A-Za-z0-9/._-]+$ ]] || die "ruta de bash inesperada: $bash_path"
+  log "Ayudante de root (lista cerrada de consultas) en $QUERY_HELPER"
+  dir=${QUERY_HELPER%/*}
+  install -d -m 755 -o root -g root "$dir"
+  check_root_only_path "$dir"
+  tmp=$(mktemp "$dir/.infraward-query.XXXXXX")
+  {
+    printf '#!%s\n' "$bash_path"
+    printf '# Generado por el script de alta de InfraWard. No editar: se reescribe al volver a ejecutarlo.\n'
+    cat <<'HELPER'
+# Ayudante de root de InfraWard (sudoers v4+): lista CERRADA de consultas.
+set -euo pipefail
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export LC_ALL=C
+umask 077
+PVE_DIR=/etc/pve
+
+NODE='^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$'
+VMID='^[1-9][0-9]{2,8}$'
+CONTAINER_ID='^[0-9a-f]{64}$'
+IMAGE_ID='^sha256:[0-9a-f]{64}$'
+DOCKER_NAME='^[A-Za-z0-9][A-Za-z0-9_.-]{0,254}$'
+MAX_INSPECT=256
+
+# Plantillas de `docker --format` (las mismas que packages/connectors/src/docker/formats.ts).
+# shellcheck disable=SC2016 # `$name` y `$net` son de la plantilla de Docker, no del shell.
+CONTAINER_FORMAT='{"id":{{json .Id}},"name":{{json .Name}},"image":{{json .Config.Image}},"imageId":{{json .Image}},"state":{{json .State.Status}},"createdAt":{{json .Created}},"startedAt":{{json .State.StartedAt}},"ports":{{json .NetworkSettings.Ports}},"bindings":{{json .HostConfig.PortBindings}},"composeProject":{{json (index .Config.Labels "com.docker.compose.project")}},"composeService":{{json (index .Config.Labels "com.docker.compose.service")}},"proxyLabels":[{{range $k, $v := .Config.Labels}}{{$p := split $k "."}}{{$n := len $p}}{{$h := index $p 0}}{{if or (eq $k "traefik.enable") (eq $k "traefik.docker.network")}}[{{json $k}},{{json $v}}],{{else if eq $h "traefik"}}{{if eq $n 5}}{{if and (eq (index $p 1) "http") (eq (index $p 2) "routers")}}{{if or (eq (index $p 4) "rule") (eq (index $p 4) "service")}}[{{json $k}},{{json $v}}],{{end}}{{end}}{{else if eq $n 7}}{{if and (eq (index $p 1) "http") (eq (index $p 2) "services") (eq (index $p 4) "loadbalancer") (eq (index $p 5) "server") (eq (index $p 6) "port")}}[{{json $k}},{{json $v}}],{{end}}{{end}}{{else if eq (index (split $h "_") 0) "caddy"}}{{if eq $n 1}}[{{json $k}},{{json $v}}],{{else if and (eq $n 2) (eq (index $p 1) "reverse_proxy")}}[{{json $k}},{{json $v}}],{{end}}{{end}}{{end}}null],"mounts":[{{range .Mounts}}{"type":{{json .Type}},"name":{{json (index . "Name")}},"source":{{json (index . "Source")}},"destination":{{json .Destination}},"rw":{{json .RW}}},{{end}}null],"networks":[{{range $name, $net := .NetworkSettings.Networks}}{"name":{{json $name}},"ipv4":{{json $net.IPAddress}},"ipv6":{{json $net.GlobalIPv6Address}},"aliases":{{json $net.Aliases}}},{{end}}null]}'
+IMAGE_FORMAT='{"id":{{json .Id}},"repoDigests":{{json .RepoDigests}},"repoTags":{{json .RepoTags}},"os":{{json .Os}},"architecture":{{json .Architecture}},"size":{{json .Size}}}'
+VOLUME_FORMAT='{"name":{{json .Name}},"driver":{{json .Driver}},"scope":{{json .Scope}},"mountpoint":{{json .Mountpoint}},"createdAt":{{json .CreatedAt}}}'
+# Filtro de nginx -T (packages/connectors/src/proxies/nginx-filter.ts, sudoers v5): se ejecuta aquí,
+# con sh, y solo deja salir nombres, listen y destinos.
+IFS= read -r -d '' NGINX_FILTER <<'NGINX' || true
+out=$("$@" 2>/dev/null)
+rc=$?
+if [ "$rc" -ne 0 ]; then
+  echo "infraward: nginx -T falló ($rc)" >&2
+  exit 3
+fi
+printf '%s\n' "$out" | awk '
+function emit(s) { if (++cnt <= 20000) print s }
+function words(s) { gsub(/[ \t\r]+/, " ", s); sub(/^ /, "", s); sub(/ $/, "", s); return split(s, W, " ") }
+function unquote(t,   f) {
+  f = substr(t, 1, 1)
+  if ((f == "\"" || f == SQ) && length(t) >= 2 && substr(t, length(t), 1) == f) t = substr(t, 2, length(t) - 2)
+  return t
+}
+function safe(t) { t = unquote(t); return (t ~ /^[]\/A-Za-z0-9._:*~^$=+[-]+$/) ? t : "" }
+function inside(kind,   i) { for (i = d; i > 0; i--) if (B[i] == kind) return 1; return 0 }
+function blk_open(s,   n, k, v, top) {
+  n = words(s); k = (n > 0) ? W[1] : ""
+  d++; K[d] = k; B[d] = 0
+  top = (d == 1) ? "http" : K[d - 1]
+  if (k == "server" && (top == "http" || top == "stream")) { emit("S " top); B[d] = 1 }
+  else if (k == "upstream" && n >= 2 && (top == "http" || top == "stream")) { v = safe(W[2]); if (v != "") { emit("U " v); B[d] = 2 } }
+  else if (k == "location" && inside(1)) { v = safe(W[n]); if (v != "" && n >= 2) { emit("@ " v); B[d] = 3 } }
+}
+function blk_close() {
+  if (d > 0) { if (B[d] == 1 || B[d] == 2) emit("E"); else if (B[d] == 3) emit("Q"); d-- }
+}
+function stmt(s,   n, k, i, v, o) {
+  n = words(s); if (n == 0) return
+  k = W[1]
+  if (inside(2)) { if (k == "server" && n >= 2) { v = safe(W[2]); if (v != "") emit("M " v) } return }
+  if (!inside(1)) return
+  if (k == "listen" && n >= 2) {
+    v = safe(W[2]); if (v == "") return
+    o = "L " v
+    for (i = 3; i <= n; i++) if (W[i] == "ssl" || W[i] == "default_server") o = o " " W[i]
+    emit(o)
+  } else if (k == "server_name") {
+    o = "N"
+    for (i = 2; i <= n && i <= 41; i++) { v = safe(W[i]); if (v != "") o = o " " v }
+    if (o != "N") emit(o)
+  } else if ((k == "proxy_pass" || k == "grpc_pass" || k == "fastcgi_pass" || k == "uwsgi_pass") && n >= 2) {
+    v = unquote(W[2]); sub(/:\/\/[^\/]*@/, "://", v); v = safe(v)
+    if (v != "") emit("P " k " " v)
+  } else if (k == "set" && n >= 3 && (W[2] == "$server" || W[2] == "$port" || W[2] == "$forward_scheme")) {
+    v = safe(W[3]); if (v != "") emit("V " W[2] " " v)
+  }
+}
+BEGIN { SQ = sprintf("%c", 39); d = 0; buf = "" }
+/^# configuration file / { d = 0; buf = ""; next }
+{
+  line = $0
+  sub(/#.*/, "", line)
+  gsub(/[{};]/, "\n&\n", line)
+  n = split(line, parts, "\n")
+  for (i = 1; i <= n; i++) {
+    p = parts[i]
+    if (p == ";") { stmt(buf); buf = "" }
+    else if (p == "{") { blk_open(buf); buf = "" }
+    else if (p == "}") { stmt(buf); buf = ""; blk_close() }
+    else buf = buf " " p
+  }
+}
+'
+NGINX
+# Paquetes de los procesos en marcha (packages/connectors/src/processes/process-packages.ts,
+# sudoers v6): se calcula aquí y solo salen nombres de procesos, unidades y paquetes.
+IFS= read -r -d '' PROCESS_FILTER <<'PROCS' || true
+P=$1
+[ -n "$P" ] || P=/proc
+G=$2
+[ -n "$G" ] || G=/sys/fs/cgroup
+LC_ALL=C
+export LC_ALL
+pids=$( {
+  ss -Htulpn 2>/dev/null | grep -o 'pid=[0-9]*' | cut -d= -f2
+  for f in "$G"/system.slice/*.service/cgroup.procs "$G"/systemd/system.slice/*.service/cgroup.procs; do
+    [ -r "$f" ] && head -n 1 "$f"
+  done
+} | grep -E '^[0-9]+$' | sort -un | head -n 300 )
+set -f
+procs=$(for pid in $pids; do
+  cg=$(cat "$P/$pid/cgroup" 2>/dev/null)
+  case $cg in (*docker*|*containerd*|*libpod*|*lxc.payload*|*machine.slice*|*kubepods*) continue ;; esac
+  exe=$(readlink "$P/$pid/exe" 2>/dev/null) || continue
+  [ -n "$exe" ] || continue
+  comm=$(head -n 1 "$P/$pid/comm" 2>/dev/null)
+  unit=$(printf '%s\n' "$cg" | sed -n 's#^.*/\([^/]*\.service\)$#\1#p' | head -n 1)
+  printf 'X\t%s\t%s\t%s\t%s\n' "$pid" "$comm" "$unit" "$exe"
+  awk -v p="$pid" '$6 ~ /\.so/ { print "L\t" p "\t" $6 }' "$P/$pid/maps" 2>/dev/null | sort -u | head -n 400
+done)
+paths=$(printf '%s\n' "$procs" | awk -F '\t' '
+  $1 == "X" || $1 == "L" {
+    p = ($1 == "X") ? $5 : $3
+    sub(/ \(deleted\)$/, "", p)
+    if (p !~ /^\/[^ ]*$/) next
+    print p
+    if (p ~ /^\/usr\/(lib|lib32|lib64|libx32|bin|sbin)\//) print substr(p, 5)
+    else if (p ~ /^\/(lib|lib32|lib64|libx32|bin|sbin)\//) print "/usr" p
+  }' | sort -u | head -n 8000)
+owners=""
+if [ -n "$paths" ]; then
+  if command -v dpkg >/dev/null 2>&1; then
+    owners=$(dpkg -S $paths 2>/dev/null | awk '
+      index($0, "diversion by ") == 1 { next }
+      { i = index($0, ": /"); if (!i) next
+        k = substr($0, 1, i - 1); sub(/,.*/, "", k); sub(/:.*/, "", k)
+        print "O\t" substr($0, i + 2) "\t" k }')
+  elif command -v rpm >/dev/null 2>&1; then
+    real=$(for p in $paths; do [ -e "$p" ] && printf '%s\n' "$p"; done)
+    if [ -n "$real" ]; then
+      owners=$( { printf '%s\n' "$real"; echo '#'; rpm -qf --qf '%{NAME}\n' $real 2>/dev/null; } | awk '
+        !s && $0 == "#" { s = 1; next }
+        !s { R[++n] = $0; next }
+        { m++; if ($0 !~ / /) print "O\t" R[m] "\t" $0 }')
+    fi
+  fi
+fi
+{ printf '%s\n' "$owners"; printf '%s\n' "$procs"; } | awk -F '\t' '
+function canon(p) {
+  sub(/ \(deleted\)$/, "", p)
+  if (p ~ /^\/usr\/(lib|lib32|lib64|libx32|bin|sbin)\//) p = substr(p, 5)
+  return p
+}
+function safe(t) { return (t ~ /^[A-Za-z0-9][A-Za-z0-9._+:@-]*$/) ? substr(t, 1, 128) : "" }
+$1 == "O" { k = canon($2); if (!(k in OWN)) OWN[k] = $3; next }
+$1 == "X" { if ($2 in IDX) next; n++; PID[n] = $2; NAME[n] = $3; UNIT[n] = $4; EXE[n] = $5; IDX[$2] = n; next }
+$1 == "L" {
+  if (!($2 in IDX)) next
+  i = IDX[$2]; k = canon($3)
+  if (!(k in OWN)) next
+  q = safe(OWN[k])
+  if (q == "" || ((i, q) in SEEN) || C[i] >= 100) next
+  SEEN[i, q] = 1; C[i]++
+  LIBS[i] = LIBS[i] "," q
+}
+END {
+  for (i = 1; i <= n; i++) {
+    e = canon(EXE[i]); ep = (e in OWN) ? safe(OWN[e]) : ""
+    out = ""; cnt = split(LIBS[i], parts, ",")
+    for (j = 1; j <= cnt; j++) if (parts[j] != "" && parts[j] != ep) out = out (out == "" ? "" : ",") parts[j]
+    print "P\t" PID[i] "\t" safe(NAME[i]) "\t" safe(UNIT[i]) "\t" ep "\t" out
+  }
+}'
+PROCS
+# Autenticación efectiva de sshd (packages/connectors/src/sshd/sshd-auth.ts, v7, QoL-7): solo
+# PermitRootLogin, PasswordAuthentication y KbdInteractiveAuthentication. Copia literal (test).
+IFS= read -r -d '' SSHD_FILTER <<'SSHD' || true
+LC_ALL=C
+export LC_ALL
+S=$(command -v sshd 2>/dev/null)
+for c in /usr/sbin/sshd /usr/local/sbin/sshd /sbin/sshd; do
+  [ -n "$S" ] && break
+  [ -x "$c" ] && S=$c
+done
+[ -n "$S" ] || exit 3
+"$S" -T -C user=root,host=localhost,addr=127.0.0.1 2>/dev/null | awk '
+$1 == "permitrootlogin" || $1 == "passwordauthentication" || $1 == "kbdinteractiveauthentication" || $1 == "challengeresponseauthentication" { print $1 "\t" $2 }
+'
+SSHD
+NETWORK_FORMAT='{"id":{{json .Id}},"name":{{json .Name}},"driver":{{json .Driver}},"scope":{{json .Scope}},"internal":{{json .Internal}},"createdAt":{{json .Created}},"subnets":[{{range .IPAM.Config}}{"subnet":{{json .Subnet}},"gateway":{{json .Gateway}}},{{end}}null]}'
+
+reject() {
+  printf 'infraward-query: rechazado: %s\n' "$*" >&2
+  exit 64
+}
+# run <binario> <argumentos…>: el binario del PATH fijo, sin shell en medio.
+run() {
+  local bin
+  bin=$(type -P -- "$1") || {
+    printf 'infraward-query: falta %s\n' "$1" >&2
+    exit 127
+  }
+  shift
+  exec "$bin" "$@"
+}
+# arity <mín> <máx>: número de argumentos de la consulta.
+arity() {
+  [ "$nargs" -ge "$1" ] && [ "$nargs" -le "$2" ] || reject "$query: número de argumentos no válido"
+}
+# check <posición> <expresión> <valor>
+check() {
+  [[ $3 =~ $2 ]] || reject "$query: argumento $1 no válido"
+}
+# each <expresión> <valores…>: de 1 a MAX_INSPECT valores, todos válidos.
+each() {
+  local re=$1 a i=0
+  shift
+  arity 1 "$MAX_INSPECT"
+  for a in "$@"; do
+    i=$((i + 1))
+    [[ $a =~ $re ]] || reject "$query: argumento $i no válido"
+  done
+}
+# guest <nodo> <lxc|qemu> <vmid>: el guest existe en ese nodo.
+guest() {
+  local dir=$2
+  [ "$dir" = qemu ] && dir=qemu-server
+  [ -f "$PVE_DIR/nodes/$1/$dir/$3.conf" ] || reject "$query: no existe $2 $3 en el nodo $1"
+}
+plesk_db() {
+  run plesk db -B -N -r -e "$1"
+}
+
+[ $# -ge 1 ] || reject "falta la consulta"
+query=$1
+shift
+nargs=$#
+case $query in
+  dmidecode-system) arity 0 0 && run dmidecode -t system ;;
+  ss) arity 0 0 && run ss -Htulpn ;;
+  pveversion) arity 0 0 && run pveversion ;;
+  pve-cluster-status) arity 0 0 && run pvesh get /cluster/status --output-format json ;;
+  pve-cluster-resources) arity 0 0 && run pvesh get /cluster/resources --type vm --output-format json ;;
+  pve-guest-config)
+    arity 3 3
+    check 1 '^(lxc|qemu)$' "$1"
+    check 2 "$NODE" "$2"
+    check 3 "$VMID" "$3"
+    guest "$2" "$1" "$3"
+    run pvesh get "/nodes/$2/$1/$3/config" --output-format json
+    ;;
+  pve-lxc-interfaces)
+    arity 2 2
+    check 1 "$NODE" "$1"
+    check 2 "$VMID" "$2"
+    guest "$1" lxc "$2"
+    run pvesh get "/nodes/$1/lxc/$2/interfaces" --output-format json
+    ;;
+  pct-exec)
+    # Root dentro de un CT de este nodo (recolección con Ansible): se valida el vmid, no el comando.
+    [ "$nargs" -ge 2 ] || reject "$query: número de argumentos no válido"
+    check 1 "$VMID" "$1"
+    [ -f "$PVE_DIR/lxc/$1.conf" ] || reject "$query: el CT $1 no es de este nodo"
+    vmid=$1
+    shift
+    run pct exec "$vmid" -- "$@"
+    ;;
+  docker-version) arity 0 0 && run docker info --format '{{.ServerVersion}}' ;;
+  docker-ps) arity 0 0 && run docker ps -a -q --no-trunc ;;
+  docker-inspect-containers) each "$CONTAINER_ID" "$@" && run docker inspect --format "$CONTAINER_FORMAT" "$@" ;;
+  docker-images) arity 0 0 && run docker images -q --no-trunc ;;
+  docker-image-inspect) each "$IMAGE_ID" "$@" && run docker image inspect --format "$IMAGE_FORMAT" "$@" ;;
+  docker-volumes) arity 0 0 && run docker volume ls -q ;;
+  docker-volume-inspect) each "$DOCKER_NAME" "$@" && run docker inspect --type volume --format "$VOLUME_FORMAT" "$@" ;;
+  docker-networks) arity 0 0 && run docker network ls --format '{{.Name}}' ;;
+  docker-network-inspect) each "$DOCKER_NAME" "$@" && run docker inspect --type network --format "$NETWORK_FORMAT" "$@" ;;
+  docker-save)
+    # Una imagen por su id, a la salida estándar: nada de `-o <ruta>` (escribiría como root).
+    arity 1 1
+    check 1 "$IMAGE_ID" "$1"
+    run docker save "$1"
+    ;;
+  # v5: rutas de nginx (y NPM en contenedor), filtradas aquí mismo por el filtro de arriba.
+  nginx-routes) arity 0 0 && run sh -c "$NGINX_FILTER" sh nginx -T ;;
+  docker-nginx-routes)
+    arity 1 1
+    check 1 "$CONTAINER_ID" "$1"
+    run sh -c "$NGINX_FILTER" sh docker exec "$1" nginx -T
+    ;;
+  # v6: paquetes de los procesos en marcha, calculados aquí mismo por el script de arriba.
+  process-packages) arity 0 0 && run sh -c "$PROCESS_FILTER" sh ;;
+  sshd-auth) arity 0 0 && run sh -c "$SSHD_FILTER" sh ;;
+  plesk-version) arity 0 0 && run plesk version ;;
+  # Consultas FIJAS a `psa` (las de packages/connectors/src/plesk/queries.ts).
+  plesk-domains) arity 0 0 && plesk_db "SELECT JSON_OBJECT('id', d.id, 'name', d.name, 'status', d.status, 'htype', d.htype, 'webspace', d.webspace_id, 'parent', d.parentDomainId, 'created', d.cr_date, 'owner', c.login, 'certificate', h.certificate_id) FROM domains d LEFT JOIN clients c ON c.id = d.cl_id LEFT JOIN hosting h ON h.dom_id = d.id ORDER BY d.id" ;;
+  plesk-aliases) arity 0 0 && plesk_db "SELECT JSON_OBJECT('id', a.id, 'name', a.name, 'status', a.status, 'domain', a.dom_id) FROM domain_aliases a ORDER BY a.id" ;;
+  plesk-databases) arity 0 0 && plesk_db "SELECT JSON_OBJECT('id', b.id, 'name', b.name, 'type', b.type, 'domain', b.dom_id, 'host', s.host, 'port', s.port) FROM data_bases b LEFT JOIN DatabaseServers s ON s.id = b.db_server_id ORDER BY b.id" ;;
+  plesk-certificates) arity 0 0 && plesk_db "SELECT JSON_OBJECT('id', c.id, 'name', c.name, 'cert', c.cert, 'domain', d.id) FROM certificates c LEFT JOIN Repository r ON r.component_id = c.id LEFT JOIN domains d ON d.cert_rep_id = r.rep_id ORDER BY c.id" ;;
+  *) reject "consulta desconocida" ;;
+esac
+HELPER
+  } >"$tmp"
+  chmod 755 "$tmp"
+  chown root:root "$tmp"
+  mv -f "$tmp" "$QUERY_HELPER"
+  # El ayudante de Plesk de la v3 ya no se usa.
+  rm -f "$LEGACY_PLESK_HELPER"
+}
+
+# Huellas SHA256 de las host keys, una por línea: "<tipo> SHA256:<huella>".
+host_keys_text() {
+  local f line fp type out=""
+  for f in /etc/ssh/ssh_host_*_key.pub; do
+    [ -f "$f" ] || continue
+    line=$(ssh-keygen -lf "$f") || continue
+    fp=$(printf '%s' "$line" | awk '{print $2}')
+    type=${line##*(}
+    type=${type%)}
+    [[ $fp =~ ^SHA256:[A-Za-z0-9+/]{43}$ ]] || continue
+    [[ $type =~ ^(ED25519|ECDSA|RSA)$ ]] || continue
+    out+="${out:+$'\n'}$type $fp"
+  done
+  [ -n "$out" ] || die "no se encontraron host keys en /etc/ssh"
+  printf '%s' "$out"
+}
+
+# Las mismas huellas en JSON, para que InfraWard fije la buena en la primera conexión.
+host_keys_json() {
+  local text type fp out=""
+  text=$(host_keys_text)
+  while read -r type fp; do
+    out+="${out:+,}{\"type\":\"$type\",\"fingerprint\":\"$fp\"}"
+  done <<<"$text"
+  printf '%s' "$out"
+}
+
+# Avisa (sin cambiar nada) si sshd_config limita los usuarios y deja fuera al de inventario.
+warn_sshd_restrictions() {
+  local user=$1 config
+  config=$(sshd -T -C "user=$user,host=localhost,addr=127.0.0.1" 2>/dev/null) || return 0
+  if printf '%s\n' "$config" | grep -qiE '^(allowusers|allowgroups) '; then
+    log "AVISO: sshd tiene AllowUsers/AllowGroups; comprueba que '$user' puede entrar"
+  fi
+  if printf '%s\n' "$config" | grep -qi '^pubkeyauthentication no'; then
+    log "AVISO: sshd tiene PubkeyAuthentication no; InfraWard no podrá conectarse"
+  fi
+}
+
+log() { printf '[infraward] %s\n' "$*" >&2; }
+die() {
+  log "ERROR: $*"
+  exit 1
+}
+
+# stdin a /dev/null: con `curl | bash` ningún comando debe leer el resto del script.
+main "$@" </dev/null
