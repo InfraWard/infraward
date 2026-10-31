@@ -172,3 +172,7 @@
       vars:
         ansible_connection: local
         ansible_python_interpreter: "{{ ansible_playbook_python }}"
+        # `copy` sube su módulo a un temporal «remoto», que en local es `~<usuario>/.ansible/tmp`
+        # (el home de /etc/passwd, no $HOME). En el worker la raíz es de solo lectura (compose
+        # con `read_only: true`): el temporal va al tmpfs del job (ANSIBLE_LOCAL_TEMP).
+        ansible_remote_tmp: "{{ lookup('ansible.builtin.env', 'ANSIBLE_LOCAL_TEMP') }}"

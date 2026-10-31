@@ -357,9 +357,23 @@ describe('describeFailure', () => {
     );
   });
 
+  it('directorio temporal: distingue el worker (tarea delegada) del servidor', () => {
+    const msg =
+      'Task failed: Failed to create temporary directory. In some cases, you may have been able to authenticate and did not have permissions on the target directory. Failed command was: ( umask 77 && mkdir -p "` echo /home/node/.ansible/tmp `" ), exited with result 1';
+    const local: ProcessResult = {
+      stdout: `TASK [x]\nfatal: [target -> localhost]: UNREACHABLE! => ${JSON.stringify({ changed: false, msg })}\nPLAY RECAP`,
+      stderr: '',
+      code: 4,
+    };
+    expect(describeFailure(local)).toMatch(/^El worker no pudo crear/);
+    expect(describeFailure(fatal(msg))).toMatch(/home del usuario de InfraWard/);
+  });
+
   it('recorta el mensaje genérico y sin fatal da el código', () => {
     const long = describeFailure(fatal('x'.repeat(1000)));
-    expect(long.length).toBeLessThan(400);
+    expect(long.length).toBeLessThan(600);
+    expect(long.endsWith('…')).toBe(true);
+    expect(describeFailure(fatal('palabra '.repeat(100)))).toMatch(/palabra…$/);
     expect(describeFailure({ stdout: 'nada', stderr: '', code: 5 })).toBe(
       'Fallo en la recolección (código 5)',
     );

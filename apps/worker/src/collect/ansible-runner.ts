@@ -218,8 +218,24 @@ export function describeFailure(
     return 'El servidor rechazó la clave de InfraWard (Permission denied)';
   if (/UTF-8/.test(msg) && /locale/i.test(msg))
     return 'Ansible necesita un locale UTF-8 en el worker';
+  if (/Failed to create temporary directory/i.test(msg))
+    // `[target -> localhost]`: la tarea delegada en el worker (el JSON del resultado).
+    return /^fatal: \[[^\]]*-> localhost\]/.test(fatal?.trim() ?? '')
+      ? 'El worker no pudo crear el directorio temporal de Ansible (raíz de solo lectura o sin espacio en el tmpfs del job)'
+      : 'Ansible no pudo crear su directorio temporal en el servidor: comprueba que el home del usuario de InfraWard existe y es suyo';
   const clean = msg.replace(/\s+/g, ' ').trim();
   return clean
-    ? `Fallo en la recolección: ${clean.slice(0, 300)}`
+    ? `Fallo en la recolección: ${clip(clean, MAX_FAILURE_CHARS)}`
     : `Fallo en la recolección (código ${result.code})`;
+}
+
+/** Tope del mensaje genérico: cabe en el log y en `failedReason` sin volcar la salida entera. */
+const MAX_FAILURE_CHARS = 500;
+
+/** Recorta por palabras y marca el corte con «…» (un corte a secas parece el mensaje entero). */
+function clip(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const cut = text.slice(0, max);
+  const space = cut.lastIndexOf(' ');
+  return `${(space > max * 0.8 ? cut.slice(0, space) : cut).trimEnd()}…`;
 }
