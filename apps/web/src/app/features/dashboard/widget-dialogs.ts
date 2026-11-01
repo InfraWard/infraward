@@ -19,6 +19,7 @@ import {
   type DashboardWidget,
   type WidgetOptionSpec,
   type WidgetType,
+  byCodeUnit,
 } from '@infraward/shared-types';
 import { ButtonModule } from '@openng/optimus-ui/button';
 import { DialogModule } from '@openng/optimus-ui/dialog';
@@ -364,7 +365,7 @@ export class WidgetConfig {
 
   protected readonly tagOptions = computed(() => {
     const known = this.store.tags().map((t) => t.tag);
-    return [...new Set([...known, ...this.tags()])].sort();
+    return [...new Set([...known, ...this.tags()])].sort(byCodeUnit);
   });
   protected readonly lockedName = computed(
     () =>

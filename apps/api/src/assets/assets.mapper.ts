@@ -105,6 +105,7 @@ export function toTreeSummary(
     runtimeDetail: extras.runtimeDetail,
     openFindings: findings.open,
     fixableFindings: findings.fixable,
+    kernelNotRunningFindings: findings.kernelNotRunning,
     sudoersOutdated: extras.sudoersOutdated,
     collectionWarnings: extras.collectionWarnings,
     duplicateOf: extras.duplicateOf,

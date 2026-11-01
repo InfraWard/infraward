@@ -1,8 +1,9 @@
-import type {
-  AssetStatus,
-  AssetType,
-  DnsCheckLevel,
-  DnsCheckReason,
+import {
+  byCodeUnit,
+  type AssetStatus,
+  type AssetType,
+  type DnsCheckLevel,
+  type DnsCheckReason,
 } from '@infraward/shared-types';
 import { isIP } from 'node:net';
 import { inZone } from './domain-provider.js';
@@ -175,14 +176,14 @@ const TAKEOVER_SERVICES: readonly [RegExp, string][] = [
   [/\.zendesk\.com$/, 'Zendesk'],
 ];
 
-const TUNNEL = /\.cfargotunnel\.com$/;
+const TUNNEL_SUFFIX = '.cfargotunnel.com';
 
 /** Servicio susceptible de takeover al que apunta un nombre, o null. */
 export function takeoverService(name: string): string | null {
   return TAKEOVER_SERVICES.find(([re]) => re.test(name))?.[1] ?? null;
 }
 
-const ACTIVE: readonly AssetStatus[] = ['active', 'pending_enrollment'];
+const ACTIVE: ReadonlySet<AssetStatus> = new Set<AssetStatus>(['active', 'pending_enrollment']);
 
 /**
  * Enlaces `resolves_to` y estado de cada registro (DESIGN §13), sin efectos:
@@ -212,11 +213,11 @@ function linkAddress(r: LinkRecord, input: LinkInput): RecordLink {
   const owners = (input.ips.get(ip) ?? []).filter((o) =>
     (IP_TARGET_TYPES as readonly string[]).includes(o.type),
   );
-  const active = owners.filter((o) => ACTIVE.includes(o.status));
+  const active = owners.filter((o) => ACTIVE.has(o.status));
   if (active.length > 0)
     return {
       ...base,
-      targets: active.map((o) => o.id).sort(),
+      targets: active.map((o) => o.id).sort(byCodeUnit),
       level: null,
       reason: 'linked',
       ambiguous: active.length > 1,
@@ -224,7 +225,7 @@ function linkAddress(r: LinkRecord, input: LinkInput): RecordLink {
   if (owners.length > 0)
     return {
       ...base,
-      targets: owners.map((o) => o.id).sort(),
+      targets: owners.map((o) => o.id).sort(byCodeUnit),
       level: 'high',
       reason: 'retired_target',
       ambiguous: owners.length > 1,
@@ -252,11 +253,12 @@ function linkCname(r: LinkRecord, input: LinkInput): RecordLink {
     const targets = [...exact, ...wildcard];
     if (targets.length === 0 && target === zone)
       targets.push(input.zones.get(zone)!);
+    targets.sort(byCodeUnit);
     return targets.length > 0
-      ? { ...base, targets: targets.sort(), level: null, reason: 'cname_internal' }
+      ? { ...base, targets, level: null, reason: 'cname_internal' }
       : { ...base, targets: [], level: 'high', reason: 'cname_internal_missing' };
   }
-  if (TUNNEL.test(target))
+  if (target.endsWith(TUNNEL_SUFFIX))
     return { ...base, targets: [], level: null, reason: 'cname_tunnel' };
   const lookup = input.cnames.get(target);
   if (lookup === 'nxdomain')
@@ -294,9 +296,9 @@ export function externalCnameTargets(
   for (const r of records) {
     if (r.type !== 'CNAME') continue;
     const target = r.content.trim().toLowerCase().replace(/\.$/, '');
-    if (!target || TUNNEL.test(target)) continue;
+    if (!target || target.endsWith(TUNNEL_SUFFIX)) continue;
     if (zoneList.some((z) => inZone(target, z))) continue;
     out.add(target);
   }
-  return [...out].sort();
+  return [...out].sort(byCodeUnit);
 }

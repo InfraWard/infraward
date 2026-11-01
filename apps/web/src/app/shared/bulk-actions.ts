@@ -101,6 +101,8 @@ export function canBulk(
               [attr.data-bulk]="action"
             />
           }
+          <!-- Acciones propias de la vista (p. ej. aceptar el riesgo de los CVE). -->
+          <ng-content />
         </span>
         <p-button
           label="Quitar la selección"
@@ -132,7 +134,7 @@ export function canBulk(
               · {{ r.skipped.length }} {{ r.skipped.length === 1 ? 'omitido' : 'omitidos' }}
             }
           </span>
-          <a [routerLink]="['/activity']" [queryParams]="{ parentJobId: r.operationId }" data-bulk-activity>
+          <a [routerLink]="['/activity', r.operationId]" data-bulk-activity>
             Ver en Actividad
           </a>
           <p-button

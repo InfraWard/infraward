@@ -80,6 +80,7 @@ import { VaultEntries } from '../vault/vault-entries';
 import { TerminalButton } from './terminal-button';
 import { AssetActions } from './asset-actions';
 import { AssetFindings } from './asset-findings';
+import { AssetRuns } from './asset-runs';
 import { AssetHierarchy } from './asset-hierarchy';
 import { AssetRelationMap } from './asset-relation-map';
 import { AssetName } from './asset-name';
@@ -135,6 +136,7 @@ export type RelationsView = (typeof RELATION_VIEWS)[number]['value'];
     SnapshotDiffView,
     AssetActions,
     AssetFindings,
+    AssetRuns,
     AssetOverview,
     AssetName,
     TagEditor,
@@ -295,6 +297,7 @@ export class AssetDetail {
     ...(this.ports().length ? ['ports'] : []),
     'relations',
     ...(this.hasCredentials() ? ['credentials'] : []),
+    'runs',
     'snapshots',
     'raw',
   ]);

@@ -696,13 +696,13 @@ export function widgetTitle(
 
 // --- Paneles por defecto ---
 
+/** Posición y tamaño en la rejilla: `[x, y, w, h]`. */
+type WidgetBox = readonly [x: number, y: number, w: number, h: number];
+
 function widget(
   id: string,
   type: WidgetType,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
+  [x, y, w, h]: WidgetBox,
   options: Record<string, unknown> = {},
   filters: WidgetFilters = {},
 ): DashboardWidget {
@@ -722,13 +722,13 @@ function widget(
 export const DEFAULT_DASHBOARD: DashboardLayout = {
   schema: DASHBOARD_SCHEMA,
   widgets: [
-    widget('vulns', 'vulnerability-counts', 0, 0, 4, 2),
-    widget('pending', 'pending-enrollment', 4, 0, 4, 2),
-    widget('running', 'running-jobs', 8, 0, 4, 2),
-    widget('top', 'top-vulnerabilities', 0, 2, 4, 5),
-    widget('types', 'asset-counts', 4, 2, 4, 5),
-    widget('attention', 'attention', 8, 2, 4, 5),
-    widget('activity', 'recent-activity', 0, 7, 12, 4),
+    widget('vulns', 'vulnerability-counts', [0, 0, 4, 2]),
+    widget('pending', 'pending-enrollment', [4, 0, 4, 2]),
+    widget('running', 'running-jobs', [8, 0, 4, 2]),
+    widget('top', 'top-vulnerabilities', [0, 2, 4, 5]),
+    widget('types', 'asset-counts', [4, 2, 4, 5]),
+    widget('attention', 'attention', [8, 2, 4, 5]),
+    widget('activity', 'recent-activity', [0, 7, 12, 4]),
   ],
 };
 
@@ -738,23 +738,20 @@ export function projectDashboardTemplate(projectId: string): DashboardLayout {
   return {
     schema: DASHBOARD_SCHEMA,
     widgets: [
-      widget('assets', 'asset-summary', 0, 0, 4, 3, {}, p),
-      widget('fixable', 'fixable-vulnerabilities', 4, 0, 4, 3, {}, p),
-      widget('vulns', 'vulnerability-counts', 8, 0, 4, 3, {}, p),
-      widget('top', 'top-vulnerabilities', 0, 3, 6, 6, { limit: '10' }, p),
-      widget('expirations', 'expirations', 6, 3, 6, 6, {}, p),
+      widget('assets', 'asset-summary', [0, 0, 4, 3], {}, p),
+      widget('fixable', 'fixable-vulnerabilities', [4, 0, 4, 3], {}, p),
+      widget('vulns', 'vulnerability-counts', [8, 0, 4, 3], {}, p),
+      widget('top', 'top-vulnerabilities', [0, 3, 6, 6], { limit: '10' }, p),
+      widget('expirations', 'expirations', [6, 3, 6, 6], {}, p),
       widget(
         'trend',
         'trend',
-        0,
-        9,
-        6,
-        4,
+        [0, 9, 6, 4],
         { metric: 'open-findings', range: '90d' },
         p,
       ),
-      widget('attention', 'attention', 6, 9, 6, 4, {}, p),
-      widget('activity', 'recent-activity', 0, 13, 12, 4, {}, p),
+      widget('attention', 'attention', [6, 9, 6, 4], {}, p),
+      widget('activity', 'recent-activity', [0, 13, 12, 4], {}, p),
     ],
   };
 }

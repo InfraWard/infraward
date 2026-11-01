@@ -1,4 +1,5 @@
 import {
+  byCodeUnit,
   DETECTED_ROLES,
   requiredSudoersVersion,
   sudoersGaps,
@@ -15,9 +16,12 @@ import {
   type SshdAuthFacts,
   type ProxyFacts,
   type SshCaTrust,
+  type PodmanRootlessUser,
 } from '@infraward/shared-types';
 import {
   isSudoDenial,
+  parsePodmanUsers,
+  podmanRootlessWarnings,
   parseSshdAuth,
   parseNginxRoutes,
   parseProcessPackages,
@@ -96,7 +100,7 @@ export function normalizeCollection(
       warnings.push(
         `sudo denegado para '${key}': alta manual o sudoers desactualizado`,
       );
-    } else if (key !== 'docker') {
+    } else if (key !== 'docker' && key !== 'podman') {
       warnings.push(
         `'${key}' falló (código ${r.rc})${stderr ? `: ${clip(firstLine(stderr))}` : ''}`,
       );
@@ -107,11 +111,18 @@ export function normalizeCollection(
   const pveversion = ok('pveversion');
   const pleskVersion = ok('plesk');
   const dockerVersion = ok('docker');
+  const podmanVersion = ok('podman');
   const ssOutput = ok('ss');
   const dmidecode = ok('dmidecode');
 
-  if (present.has('docker') && dockerVersion === null)
+  // Con podman-docker, `docker` es Podman y `docker info` no tiene `ServerVersion`: no es un
+  // demonio caído, lo inventaría el descubridor de Podman.
+  if (present.has('docker') && dockerVersion === null && !present.has('podman'))
     warnings.push('docker está instalado pero el demonio no responde');
+  if (present.has('podman') && podmanVersion === null && !podmanDenied(sudo.get('podman')))
+    warnings.push('podman está instalado pero no responde (podman info)');
+  const podmanUsers = podmanRootless(sudo.get('podman_users'));
+  if (podmanUsers) warnings.push(...podmanRootlessWarnings({ detected: podmanUsers }));
   const ports = collectPorts(raw, present, ssOutput, warnings);
 
   const sudoersVersion = /^\d{1,6}$/.test((raw.sudoersVersion ?? '').trim())
@@ -162,6 +173,12 @@ export function normalizeCollection(
         ? firstLine(pleskVersion ?? '') || 'desconocida'
         : null,
       docker: dockerVersion?.trim() ? firstLine(dockerVersion) : null,
+      // Podman no tiene demonio: basta con que esté. Sin la v8 (no se puede preguntar la
+      // versión) también, para que el aviso del sudoers diga que hay que actualizarlo.
+      podman: present.has('podman')
+        ? firstLine(podmanVersion ?? '') || 'desconocida'
+        : null,
+      ...(present.has('podman') && podmanUsers ? { podmanUsers } : {}),
     },
     infraward: {
       collectedAt: now.toISOString(),
@@ -175,6 +192,20 @@ export function normalizeCollection(
     ...processPackages(sudo.get('processes')),
     ...sshdAuth(sudo.get('sshd')),
   };
+}
+
+/** ¿Rechazó sudo (o el ayudante, sudoers anterior a la v8) `podman info`? */
+function podmanDenied(r: RawSudoResult | undefined): boolean {
+  return !!r && !r.skipped && r.rc !== undefined && isSudoDenial((r.stderr ?? '').trim(), r.rc);
+}
+
+/**
+ * Usuarios con Podman rootless detectados (sudoers v8): habilitados o no, con sus señales. Sin la
+ * v8 (denegado) no se sabe: lo dice el aviso del sudoers (null).
+ */
+function podmanRootless(r: RawSudoResult | undefined): PodmanRootlessUser[] | null {
+  if (!r || r.skipped || r.rc !== 0) return null;
+  return parsePodmanUsers(r.stdout ?? '').detected;
 }
 
 /**
@@ -241,6 +272,7 @@ export function detectRoles(facts: CollectedFacts): DetectedRole[] {
   if (facts.detected.proxmox) roles.push('proxmox-node');
   if (facts.detected.plesk) roles.push('plesk');
   if (facts.detected.docker) roles.push('docker-host');
+  if (facts.detected.podman) roles.push('podman-host');
   return roles;
 }
 
@@ -251,7 +283,7 @@ export function detectRoles(facts: CollectedFacts): DetectedRole[] {
 export function mergeRoles(current: string[], detected: string[]): string[] {
   const managed = new Set<string>(DETECTED_ROLES);
   const manual = current.filter((r) => !managed.has(r));
-  return [...new Set([...manual, ...detected])].sort();
+  return [...new Set([...manual, ...detected])].sort(byCodeUnit);
 }
 
 /**
@@ -361,7 +393,7 @@ export function parseProcNet(output: string): CollectedPort[] {
     if (
       proto === 'tcp'
         ? state !== '0A'
-        : state !== '07' || !/:0000$/.test(remoteHex)
+        : state !== '07' || !remoteHex.endsWith(':0000')
     )
       continue;
     const m = /^([0-9A-Fa-f]{8}|[0-9A-Fa-f]{32}):([0-9A-Fa-f]{4})$/.exec(
@@ -371,7 +403,7 @@ export function parseProcNet(output: string): CollectedPort[] {
     ports.push({
       proto,
       address: hexAddress(m[1]),
-      port: parseInt(m[2], 16),
+      port: Number.parseInt(m[2], 16),
       process: null,
       pid: null,
     });
@@ -382,7 +414,7 @@ export function parseProcNet(output: string): CollectedPort[] {
 /** `ADDR` de /proc/net: cada palabra de 32 bits está en little-endian. */
 function hexAddress(hex: string): string {
   const bytes = (hex.match(/.{8}/g) ?? []).flatMap((word) =>
-    (word.match(/../g) ?? []).reverse().map((b) => parseInt(b, 16)),
+    (word.match(/../g) ?? []).reverse().map((b) => Number.parseInt(b, 16)),
   );
   if (bytes.length === 4) return bytes.join('.');
   const groups: number[] = [];

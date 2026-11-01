@@ -138,7 +138,7 @@ export class MemoryLimiterStore implements LimiterStore {
 
   fail(key: string, limit: number, ttlMs: number): Promise<void> {
     if (this.entries.size >= 10_000)
-      for (const k of [...this.entries.keys()]) this.live(k); // purga las caducadas
+      for (const k of this.entries.keys()) this.live(k); // purga las caducadas
     const entry = this.live(key) ?? { count: 0, expiresAt: this.now() + ttlMs };
     entry.count++;
     if (entry.count === limit) entry.expiresAt = this.now() + ttlMs;

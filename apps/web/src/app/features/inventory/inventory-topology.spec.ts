@@ -97,6 +97,7 @@ describe('InventoryTopology', () => {
     el.querySelector<HTMLElement>('[data-collapse-all] button')!.click();
     await fixture.whenStable();
     http.expectOne('/api/assets/topology?includeRetired=false').flush(hostLevel);
+    expect(() => http.verify()).not.toThrow();
   });
 
   it('resaltar críticas atenúa lo que no las tiene', async () => {
@@ -114,5 +115,6 @@ describe('InventoryTopology', () => {
   it('el proyecto va a la API', async () => {
     const { http } = await setup({ project: 'p1' });
     http.expectOne('/api/assets/topology?projectId=p1&includeRetired=false').flush(hostLevel);
+    expect(() => http.verify()).not.toThrow();
   });
 });

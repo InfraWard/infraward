@@ -76,7 +76,7 @@ export function createTerminalSigner(
     OPENBAO_NAMES,
   );
   const app = source.appOpenbao;
-  if (app?.roleId && app.roleId.trim() === config.credentials.roleId)
+  if (app?.roleId?.trim() === config.credentials.roleId)
     throw new Error(
       `${TERMINAL_SIGNER_ENV.roleId}: la terminal necesita su propia AppRole (infraward-terminal), no la de la app (la tiene también el worker)`,
     );

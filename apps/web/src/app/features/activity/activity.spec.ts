@@ -4,7 +4,7 @@ import {
   provideHttpClientTesting,
 } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { provideRouter, Router } from '@angular/router';
 import type { JobRunSummary } from '@infraward/shared-types';
 import { storeSession } from '../../testing/session';
 import { Activity, ACTIVITY_POLL_MS, activityQuery, workersSummary } from './activity';
@@ -21,6 +21,8 @@ const run = (state: JobRunSummary['state'], extra: Partial<JobRunSummary> = {}):
   message: state === 'active' ? 'Ejecutando el playbook' : null,
   error: state === 'failed' ? 'Sin conexión SSH' : null,
   parentJobId: null,
+  parent: null,
+  origin: 'manual',
   worker: state === 'queued' ? null : 'worker-1',
   createdAt: '2026-10-10T10:00:00.000Z',
   startedAt: '2026-10-10T10:00:01.000Z',
@@ -47,6 +49,11 @@ describe('activityQuery: operaciones en lote', () => {
     const id = '0d2b7a5e-1111-4222-8333-444455556666';
     expect(activityQuery({ parentJobId: id }, { offset: 0, limit: 25 }).parentJobId).toBe(id);
     expect(activityQuery({ parentJobId: 'x' }, { offset: 0, limit: 25 }).parentJobId).toBeUndefined();
+  });
+
+  it('pasa el origen solo si es uno conocido', () => {
+    expect(activityQuery({ origin: 'bulk' }, { offset: 0, limit: 25 }).origin).toBe('bulk');
+    expect(activityQuery({ origin: 'otro' }, { offset: 0, limit: 25 })).not.toHaveProperty('origin');
   });
 });
 
@@ -104,6 +111,17 @@ describe('Activity', () => {
     fixture.detectChanges();
     const req = http.expectOne((r) => r.url === '/api/jobs');
     expect(req.request.params.get('parentJobId')).toBe(op);
+    const bulk = run('completed', {
+      id: op,
+      name: 'assets.bulk',
+      queue: 'system',
+      assetId: null,
+      assetType: null,
+      assetName: 'web, cache y 1 más',
+      message: 'Escanear · 3 assets · 3 tareas · por admin@example.com',
+      origin: null,
+    });
+    http.expectOne(`/api/jobs/runs/${op}`).flush(bulk);
     req.flush({
       items: [
         run('completed', {
@@ -129,7 +147,10 @@ describe('Activity', () => {
     expect(children.textContent).toContain('3 tareas');
     expect(children.textContent).toContain('1 fallida');
     expect(children.querySelector('a')!.getAttribute('href')).toContain(`parentJobId=${op}`);
-    expect(el.querySelector('[data-filter="parent"]')).not.toBeNull();
+    expect(row.querySelector('[data-bulk-message]')!.textContent).not.toContain('admin@example.com');
+    const chip = el.querySelector('[data-filter="parent"]')!;
+    expect(chip.textContent).toContain('Tareas de: Escanear · 3 assets');
+    expect(chip.querySelector('[data-parent-link]')!.getAttribute('href')).toBe(`/activity/${op}`);
     flushWorkers(http);
     http.verify();
   });
@@ -165,6 +186,113 @@ describe('Activity', () => {
       'Esperando turno en pve-pruebas',
     );
     expect(el.querySelector('[data-workers]')!.textContent).toContain('2 workers conectados');
+  });
+});
+
+describe('Activity: origen y detalle', () => {
+  beforeEach(() => storeSession('viewer'));
+  afterEach(() => sessionStorage.clear());
+
+  function setup() {
+    TestBed.configureTestingModule({
+      imports: [Activity],
+      providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting()],
+    });
+    const http = TestBed.inject(HttpTestingController);
+    const fixture = TestBed.createComponent(Activity);
+    fixture.detectChanges();
+    return { http, fixture, el: fixture.nativeElement as HTMLElement };
+  }
+
+  it('dice de dónde viene cada una y enlaza la tarea o el lote que la lanzó', async () => {
+    const { http, fixture, el } = setup();
+    http.expectOne((r) => r.url === '/api/jobs').flush({
+      items: [
+        run('completed', {
+          id: 'c1',
+          parentJobId: 'b1',
+          origin: 'bulk',
+          parent: {
+            id: 'b1',
+            name: 'assets.bulk',
+            assetId: null,
+            assetName: 'pve, web',
+            assetType: null,
+            state: 'completed',
+            message: 'Recolectar · 2 assets · 2 tareas · por ana@example.com',
+          },
+        }),
+        run('completed', {
+          id: 'd1',
+          name: 'asset.discover',
+          parentJobId: 'c0',
+          origin: 'chain',
+          parent: {
+            id: 'c0',
+            name: 'asset.collect',
+            assetId: 'pve',
+            assetName: 'pve-pruebas',
+            assetType: 'server',
+            state: 'completed',
+            message: null,
+          },
+        }),
+        run('completed', { id: 's1', origin: 'schedule' }),
+        run('completed', { id: 'x1', parentJobId: 'gone', origin: 'chain' }),
+        run('completed', { id: 'o1', origin: null }),
+      ],
+      total: 5,
+    });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const origin = (id: string) => el.querySelector(`[data-run="${id}"] [data-origin]`)!;
+    expect(origin('c1').textContent).toContain('En lote');
+    expect(origin('c1').querySelector('[data-parent]')!.textContent).toContain('Recolectar · 2 assets');
+    expect(origin('c1').querySelector('[data-parent]')!.getAttribute('href')).toBe('/activity/b1');
+    expect(origin('d1').textContent).toContain('Encadenada');
+    expect(origin('d1').querySelector('[data-parent]')!.textContent).toContain('Recolección de pve-pruebas');
+    expect(origin('s1').textContent).toContain('Programada');
+    expect(origin('x1').textContent).toContain('Tarea ya borrada');
+    expect(origin('o1').textContent?.trim()).toBe('—');
+    expect(el.querySelector('[data-run="s1"] [data-run-link]')!.getAttribute('href')).toBe('/activity/s1');
+    flushWorkers(http);
+  });
+
+  it('un clic en la fila abre su detalle; en un enlace de la fila, no', async () => {
+    const { http, fixture, el } = setup();
+    const router = TestBed.inject(Router);
+    const navigate = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+    // El enlace del asset navega de verdad (RouterLink): sin la ruta, la promesa se rechazaría.
+    const navigateByUrl = vi.spyOn(router, 'navigateByUrl').mockResolvedValue(true);
+    http.expectOne((r) => r.url === '/api/jobs').flush({ items: [run('failed', { id: 'f1' })], total: 1 });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    el.querySelector<HTMLElement>('[data-run="f1"] [data-duration]')!.click();
+    expect(navigate).toHaveBeenCalledWith(['/activity', 'f1'], { state: { fromActivity: true } });
+    navigate.mockClear();
+    el.querySelector<HTMLElement>('[data-run="f1"] a.asset')!.click();
+    expect(navigate).not.toHaveBeenCalled();
+    expect(navigateByUrl).toHaveBeenCalledTimes(1);
+    flushWorkers(http);
+  });
+
+  it('el filtro de origen va a la URL y a la API', async () => {
+    const { http, fixture } = setup();
+    const router = TestBed.inject(Router);
+    const navigate = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+    http.expectOne((r) => r.url === '/api/jobs').flush({ items: [], total: 0 });
+    fixture.componentInstance.setFilter({ origin: 'schedule' });
+    expect(navigate).toHaveBeenCalledWith([], {
+      queryParams: { origin: 'schedule' },
+      queryParamsHandling: 'merge',
+    });
+    fixture.componentRef.setInput('origin', 'schedule');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(
+      http.expectOne((r) => r.url === '/api/jobs').request.params.get('origin'),
+    ).toBe('schedule');
+    flushWorkers(http);
   });
 });
 

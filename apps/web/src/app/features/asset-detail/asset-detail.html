@@ -245,6 +245,7 @@
       @if (hasCredentials()) {
         <p-tab value="credentials" data-tab="credentials"><i class="bi bi-safe2" aria-hidden="true"></i> Credenciales</p-tab>
       }
+      <p-tab value="runs" data-tab="runs"><i class="bi bi-journal-text" aria-hidden="true"></i> Recolecciones</p-tab>
       <p-tab value="snapshots"><i class="bi bi-clock-history" aria-hidden="true"></i> Snapshots</p-tab>
       <p-tab value="raw"><i class="bi bi-braces" aria-hidden="true"></i> Datos en bruto</p-tab>
     </p-tablist>
@@ -300,10 +301,10 @@
             </ng-template>
             <ng-template #header>
               <tr>
-                <th pSortableColumn="name">Nombre <p-sortIcon field="name" /></th>
-                <th pSortableColumn="version">Versión <p-sortIcon field="version" /></th>
-                <th>Arquitectura</th>
-                <th pSortableColumn="manager">Gestor <p-sortIcon field="manager" /></th>
+                <th scope="col" pSortableColumn="name">Nombre <p-sortIcon field="name" /></th>
+                <th scope="col" pSortableColumn="version">Versión <p-sortIcon field="version" /></th>
+                <th scope="col">Arquitectura</th>
+                <th scope="col" pSortableColumn="manager">Gestor <p-sortIcon field="manager" /></th>
               </tr>
             </ng-template>
             <ng-template #body let-p>
@@ -343,9 +344,9 @@
             </ng-template>
             <ng-template #header>
               <tr>
-                <th pSortableColumn="name">Servicio <p-sortIcon field="name" /></th>
-                <th pSortableColumn="state">Estado <p-sortIcon field="state" /></th>
-                <th pSortableColumn="status">Arranque <p-sortIcon field="status" /></th>
+                <th scope="col" pSortableColumn="name">Servicio <p-sortIcon field="name" /></th>
+                <th scope="col" pSortableColumn="state">Estado <p-sortIcon field="state" /></th>
+                <th scope="col" pSortableColumn="status">Arranque <p-sortIcon field="status" /></th>
               </tr>
             </ng-template>
             <ng-template #body let-s>
@@ -366,11 +367,11 @@
           <p-table [value]="ports()" sortField="port" size="small">
             <ng-template #header>
               <tr>
-                <th pSortableColumn="port">Puerto <p-sortIcon field="port" /></th>
-                <th pSortableColumn="proto">Protocolo <p-sortIcon field="proto" /></th>
-                <th>Dirección</th>
-                <th pSortableColumn="process">Proceso <p-sortIcon field="process" /></th>
-                <th>PID</th>
+                <th scope="col" pSortableColumn="port">Puerto <p-sortIcon field="port" /></th>
+                <th scope="col" pSortableColumn="proto">Protocolo <p-sortIcon field="proto" /></th>
+                <th scope="col">Dirección</th>
+                <th scope="col" pSortableColumn="process">Proceso <p-sortIcon field="process" /></th>
+                <th scope="col">PID</th>
               </tr>
             </ng-template>
             <ng-template #body let-p>
@@ -448,10 +449,10 @@
             <p-table [value]="r.outgoing" size="small">
               <ng-template #header>
                 <tr>
-                  <th style="width: 12rem">Relación</th>
-                  <th>Asset</th>
-                  <th>Tipo</th>
-                  <th>Estado</th>
+                  <th scope="col" style="width: 12rem">Relación</th>
+                  <th scope="col">Asset</th>
+                  <th scope="col">Tipo</th>
+                  <th scope="col">Estado</th>
                 </tr>
               </ng-template>
               <ng-template #body let-rel>
@@ -476,10 +477,10 @@
             <p-table [value]="r.incoming" size="small">
               <ng-template #header>
                 <tr>
-                  <th style="width: 12rem">Relación</th>
-                  <th>Asset</th>
-                  <th>Tipo</th>
-                  <th>Estado</th>
+                  <th scope="col" style="width: 12rem">Relación</th>
+                  <th scope="col">Asset</th>
+                  <th scope="col">Tipo</th>
+                  <th scope="col">Estado</th>
                 </tr>
               </ng-template>
               <ng-template #body let-rel>
@@ -503,6 +504,12 @@
         </ng-template>
       </p-tabpanel>
 
+      <p-tabpanel value="runs">
+        <ng-template #content>
+          <app-asset-runs [assetId]="a.id" />
+        </ng-template>
+      </p-tabpanel>
+
       <p-tabpanel value="snapshots">
         <ng-template #content>
           <div class="snapshots">
@@ -522,8 +529,8 @@
             >
               <ng-template #header>
                 <tr>
-                  <th>Fecha</th>
-                  <th>Cambios</th>
+                  <th scope="col">Fecha</th>
+                  <th scope="col">Cambios</th>
                 </tr>
               </ng-template>
               <ng-template #body let-s>

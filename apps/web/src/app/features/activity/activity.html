@@ -1,7 +1,10 @@
 <header class="page-head">
   <div>
     <h1><i class="bi bi-activity" aria-hidden="true"></i> Actividad</h1>
-    <p>Recolecciones, descubrimientos, escaneos y verificaciones de alta, de la más reciente a la más antigua.</p>
+    <p>
+      Recolecciones, descubrimientos, escaneos y verificaciones de alta, de la más reciente a la más
+      antigua, con de dónde viene cada una. Abre una para ver su log.
+    </p>
   </div>
   <div class="head-tags">
     @if (running(); as n) {
@@ -37,9 +40,27 @@
     optionValue="value"
     [ngModel]="query().name ?? null"
     (ngModelChange)="setFilter({ name: $event })"
-    ariaLabel="Tipo de job"
+    ariaLabel="Tipo de tarea"
     data-filter="name"
   />
+  <p-select
+    [options]="originOptions"
+    optionLabel="label"
+    optionValue="value"
+    [ngModel]="query().origin ?? null"
+    (ngModelChange)="setFilter({ origin: $event })"
+    ariaLabel="Origen"
+    data-filter="origin"
+  >
+    <ng-template #item let-o>
+      <span class="origin">
+        @if (o.icon) {
+          <i class="bi {{ o.icon }}" aria-hidden="true"></i>
+        }
+        {{ o.label }}
+      </span>
+    </ng-template>
+  </p-select>
   @if (query().assetId) {
     <p-chip
       [label]="'Asset: ' + assetName()"
@@ -49,14 +70,16 @@
       data-filter="asset"
     />
   }
-  @if (query().parentJobId) {
-    <p-chip
-      label="Tareas de una operación"
-      icon="bi bi-ui-checks"
-      [removable]="true"
-      (onRemove)="setFilter({ parentJobId: null })"
-      data-filter="parent"
-    />
+  @if (query().parentJobId; as parentId) {
+    <span class="parent-filter" data-filter="parent">
+      <p-chip
+        [label]="parentRun() ? 'Tareas de: ' + parentLabel(parentRun()!) : 'Tareas de una operación'"
+        [icon]="parentRun() ? 'bi ' + jobIcons[parentRun()!.name] : 'bi bi-ui-checks'"
+        [removable]="true"
+        (onRemove)="setFilter({ parentJobId: null })"
+      />
+      <a [routerLink]="['/activity', parentId]" [state]="{ fromActivity: true }" class="small" data-parent-link>Ver la operación</a>
+    </span>
   }
 </div>
 
@@ -82,40 +105,56 @@
   >
     <ng-template #header>
       <tr>
-        <th style="width: 15rem">Tarea</th>
-        <th>Asset</th>
-        <th style="width: 18rem">Estado</th>
-        <th style="width: 7rem">Worker</th>
-        <th style="width: 10rem">Inicio</th>
-        <th style="width: 8rem">Duración</th>
+        <th scope="col">Tarea</th>
+        <th scope="col" style="width: 15rem">Origen</th>
+        <th scope="col" style="width: 17rem">Estado</th>
+        <th scope="col" style="width: 7rem">Réplica</th>
+        <th scope="col" style="width: 9rem">Inicio</th>
+        <th scope="col" style="width: 7rem">Duración</th>
+        <th scope="col" style="width: 2.5rem"><span class="sr-only">Detalle</span></th>
       </tr>
     </ng-template>
     <ng-template #body let-run>
-      <tr [attr.data-run]="run.id" [attr.data-state]="run.state">
+      <tr
+        [attr.data-run]="run.id"
+        [attr.data-state]="run.state"
+        class="clickable"
+        [class.failed]="run.state === 'failed'"
+        (click)="openRun(run, $event)"
+      >
         <td>
-          <span class="job">
+          <a [routerLink]="['/activity', run.id]" [state]="{ fromActivity: true }" class="job" data-run-link>
             <i class="bi {{ jobIcons[run.name] }}" aria-hidden="true"></i>
             {{ jobLabels[run.name] }}
-            @if (run.parentJobId) {
-              <a
-                [routerLink]="[]"
-                [queryParams]="{ parentJobId: run.parentJobId }"
-                queryParamsHandling="merge"
-                pTooltip="Encadenada por otra tarea o lanzada en lote: ver las de la misma"
-                aria-label="Ver las tareas de la misma operación"
-                ><i class="bi bi-link-45deg text-muted" aria-hidden="true"></i
-              ></a>
+          </a>
+          <div class="sub">
+            @if (run.assetId) {
+              <a [routerLink]="['/assets', run.assetId]" class="asset">
+                <i class="bi {{ typeIcons[run.assetType] }}" aria-hidden="true"></i>
+                {{ run.assetName }}
+              </a>
+            } @else if (run.name === 'assets.bulk') {
+              <span class="text-muted">{{ run.assetName }}</span>
+            } @else if (run.assetName) {
+              <span class="text-muted" pTooltip="El asset ya no existe">{{ run.assetName }}</span>
             }
-          </span>
+          </div>
         </td>
-        <td>
-          @if (run.assetId) {
-            <a [routerLink]="['/assets', run.assetId]" class="asset">
-              <i class="bi {{ typeIcons[run.assetType] }}" aria-hidden="true"></i>
-              {{ run.assetName }}
-            </a>
-          } @else if (run.assetName) {
-            <span class="text-muted" pTooltip="El asset ya no existe">{{ run.assetName }}</span>
+        <td data-origin>
+          @if (run.origin; as o) {
+            <span class="origin" [pTooltip]="originHints[o]">
+              <i class="bi {{ originIcons[o] }}" aria-hidden="true"></i>
+              {{ originLabels[o] }}
+            </span>
+            @if (run.parent; as p) {
+              <div class="sub">
+                <a [routerLink]="['/activity', p.id]" [state]="{ fromActivity: true }" data-parent>
+                  {{ parentLabel(p) }}
+                </a>
+              </div>
+            } @else if (o === 'chain') {
+              <div class="sub text-muted" pTooltip="La tarea que la encoló ya no está en el historial">Tarea ya borrada</div>
+            }
           } @else {
             <span class="text-muted">—</span>
           }
@@ -132,14 +171,14 @@
             <div class="detail text-muted" data-wait>{{ run.message }}</div>
           }
           @if (run.error) {
-            <div class="detail error" data-error>{{ run.error }}</div>
+            <div class="detail error clamp" [pTooltip]="run.error" data-error>{{ run.error }}</div>
           }
           @if (run.name === 'assets.bulk' && run.message) {
-            <div class="detail text-muted" data-bulk-message>{{ run.message }}</div>
+            <div class="detail text-muted" data-bulk-message>{{ bulkSummary(run.message) }}</div>
           }
           @if (run.children; as c) {
             <div class="detail" data-children>
-              <a [routerLink]="[]" [queryParams]="{ parentJobId: run.id, state: null, name: null, assetId: null }" queryParamsHandling="merge">
+              <a [routerLink]="[]" [queryParams]="{ parentJobId: run.id, state: null, name: null, origin: null, assetId: null }" queryParamsHandling="merge">
                 {{ c.total }} {{ c.total === 1 ? 'tarea' : 'tareas' }}
               </a>
               @if (c.running) {
@@ -166,11 +205,18 @@
           </span>
         </td>
         <td class="nowrap" data-duration>{{ duration(run.durationMs) }}</td>
+        <td class="chevron">
+          @if (run.hasLog) {
+            <i class="bi bi-journal-text text-muted" pTooltip="Tiene log" aria-label="Tiene log"></i>
+          } @else {
+            <i class="bi bi-chevron-right text-muted" aria-hidden="true"></i>
+          }
+        </td>
       </tr>
     </ng-template>
     <ng-template #emptymessage>
       <tr>
-        <td colspan="6" class="text-muted">Sin actividad con este filtro.</td>
+        <td colspan="7" class="text-muted">Sin actividad con este filtro.</td>
       </tr>
     </ng-template>
   </p-table>

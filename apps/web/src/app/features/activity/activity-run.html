@@ -1,0 +1,180 @@
+<a routerLink="/activity" (click)="back($event)" class="back" data-back>
+  <i class="bi bi-arrow-left" aria-hidden="true"></i> {{ inApp() ? 'Volver' : 'Actividad' }}
+</a>
+
+@if (loaded(); as l) {
+  @if (l.state === 'error') {
+    <p-message severity="error" icon="bi bi-exclamation-triangle" data-run-error>{{ l.message }}</p-message>
+  }
+}
+
+@if (detail(); as d) {
+  @let run = d.run;
+  <header class="page-head">
+    <div>
+      <h1>
+        <i class="bi {{ jobIcons[run.name] }}" aria-hidden="true"></i>
+        {{ jobLabels[run.name] ?? run.name }}
+        <p-tag [value]="stateLabels[run.state]" [severity]="stateSeverity[run.state]" data-run-state />
+      </h1>
+      <p class="lead">
+        @if (run.assetId) {
+          <a [routerLink]="['/assets', run.assetId]" class="asset" data-run-asset>
+            <i class="bi {{ typeIcons[run.assetType!] }}" aria-hidden="true"></i>
+            {{ run.assetName }}
+          </a>
+          ·
+        } @else if (run.assetName) {
+          <span [pTooltip]="run.name === 'assets.bulk' ? undefined : 'El asset ya no existe'">{{ run.assetName }}</span>
+          ·
+        }
+        <span class="text-muted">Encolada el {{ run.createdAt | date: 'medium' }}</span>
+      </p>
+    </div>
+    @if (isRunning(run) || run.children?.running) {
+      <span class="text-muted live"><i class="bi bi-arrow-repeat spin" aria-hidden="true"></i> Actualizándose…</span>
+    }
+  </header>
+
+  @if (run.state === 'active') {
+    <div class="progress-row" data-run-progress>
+      <p-progressbar [value]="run.progress" [showValue]="false" styleClass="progress" />
+      <span class="text-muted">{{ run.progress }} %@if (run.message) { · {{ run.message }}}</span>
+    </div>
+  }
+  @if (run.state === 'failed' && run.error) {
+    <p-message severity="error" icon="bi bi-x-octagon" styleClass="mb" data-run-failure>{{ run.error }}</p-message>
+  }
+
+  <section class="facts" aria-label="Datos de la ejecución">
+    <dl>
+      <div data-fact="origin">
+        <dt>Origen</dt>
+        <dd>
+          @if (run.origin; as o) {
+            <span class="origin" [pTooltip]="originHints[o]">
+              <i class="bi {{ originIcons[o] }}" aria-hidden="true"></i> {{ originLabels[o] }}
+            </span>
+            @if (run.parent; as p) {
+              <div class="sub">
+                <a [routerLink]="['/activity', p.id]" [state]="{ fromActivity: true }" data-run-parent>
+                  <i class="bi {{ jobIcons[p.name] }}" aria-hidden="true"></i> {{ parentLabel(p) }}
+                </a>
+                <p-tag [value]="stateLabels[p.state]" [severity]="stateSeverity[p.state]" styleClass="mini" />
+              </div>
+              @if (p.name === 'assets.bulk' && p.message) {
+                <div class="sub text-muted" data-run-parent-summary>{{ p.message }}</div>
+              }
+            } @else if (o === 'chain') {
+              <div class="sub text-muted">La tarea que la encoló ya no está en el historial.</div>
+            }
+          } @else {
+            <span class="text-muted" pTooltip="Ejecución anterior a que se registrara el origen">Sin registrar</span>
+          }
+        </dd>
+      </div>
+      <div>
+        <dt>Inicio</dt>
+        <dd>{{ run.startedAt ? (run.startedAt | date: 'medium') : '—' }}</dd>
+      </div>
+      <div>
+        <dt>Fin</dt>
+        <dd>{{ run.finishedAt ? (run.finishedAt | date: 'medium') : '—' }}</dd>
+      </div>
+      <div>
+        <dt>Duración</dt>
+        <dd data-fact="duration">{{ duration(run.durationMs) }}</dd>
+      </div>
+      <div>
+        <dt>Réplica</dt>
+        <dd>
+          @if (run.worker) {
+            <code>{{ run.worker }}</code>
+          } @else {
+            <span class="text-muted">—</span>
+          }
+        </dd>
+      </div>
+      @if (showMessage(run)) {
+        <div class="wide" data-fact="message">
+          <dt>{{ run.name === 'assets.bulk' ? 'Resumen' : 'Último mensaje' }}</dt>
+          <dd>{{ run.message }}</dd>
+        </div>
+      }
+    </dl>
+  </section>
+
+  @if (run.children; as c) {
+    <section class="block" data-run-children>
+      <div class="block-head">
+        <h2>
+          Tareas que lanzó
+          <span class="text-muted counts">
+            {{ c.total }}
+            @if (c.running) { · {{ c.running }} en curso }
+            @if (c.failed) { · <span class="error">{{ c.failed }} {{ c.failed === 1 ? 'fallida' : 'fallidas' }}</span> }
+          </span>
+        </h2>
+        <a routerLink="/activity" [queryParams]="{ parentJobId: run.id }" class="small" data-run-children-all>Verlas en la Actividad</a>
+      </div>
+      @if (d.children; as page) {
+        <div class="table-scroll">
+          <p-table [value]="page.items" dataKey="id" size="small" tableStyleClass="children-table">
+            <ng-template #header>
+              <tr>
+                <th scope="col">Tarea</th>
+                <th scope="col" style="width: 10rem">Estado</th>
+                <th scope="col" style="width: 7rem">Duración</th>
+              </tr>
+            </ng-template>
+            <ng-template #body let-child>
+              <tr [attr.data-child]="child.id">
+                <td>
+                  <a [routerLink]="['/activity', child.id]" [state]="{ fromActivity: true }" class="job">
+                    <i class="bi {{ jobIcons[child.name] }}" aria-hidden="true"></i> {{ jobLabels[child.name] }}
+                  </a>
+                  @if (child.assetName) {
+                    <span class="text-muted"> · {{ child.assetName }}</span>
+                  }
+                  @if (child.error) {
+                    <div class="sub error clamp" [pTooltip]="child.error">{{ child.error }}</div>
+                  }
+                </td>
+                <td><p-tag [value]="stateLabels[child.state]" [severity]="stateSeverity[child.state]" /></td>
+                <td class="nowrap">{{ duration(child.durationMs) }}</td>
+              </tr>
+            </ng-template>
+          </p-table>
+        </div>
+        @if (page.total > page.items.length) {
+          <p class="text-muted small">Se muestran {{ page.items.length }} de {{ page.total }}: el resto, en la Actividad.</p>
+        }
+      }
+    </section>
+  }
+
+  <section class="block" data-run-log-section>
+    <h2>Log</h2>
+    @if (run.name === 'assets.bulk') {
+      <p class="text-muted" data-log-bulk>
+        Una operación en lote no ejecuta nada por sí misma: cada una de sus tareas tiene su propio log.
+      </p>
+    } @else if (!canReadLog()) {
+      <p-message severity="info" icon="bi bi-lock" data-log-forbidden>
+        Ver el log de una ejecución requiere permiso para operar el inventario (admin, editor u
+        operador): lleva errores de los servidores.
+      </p-message>
+    } @else if (log(); as l) {
+      @if (l.state === 'loading') {
+        <p-skeleton height="12rem" />
+      } @else if (l.state === 'error') {
+        <p-message severity="error" icon="bi bi-exclamation-triangle">{{ l.message }}</p-message>
+      } @else {
+        <app-job-log [log]="l.value" [compact]="true" />
+      }
+    }
+  </section>
+} @else if (loaded().state === 'loading') {
+  <p-skeleton height="6rem" styleClass="mb" />
+  <p-skeleton height="14rem" />
+}

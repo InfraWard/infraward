@@ -22,6 +22,9 @@ describe('availableActions', () => {
     expect(
       ids({ ...base, type: 'server', status: 'active', connection, roles: ['docker-host'] }, idle),
     ).toEqual(['collect', 'scan', 'retire', 'purge']);
+    expect(
+      ids({ ...base, type: 'server', status: 'active', connection, roles: ['podman-host'] }, idle),
+    ).toEqual(['collect', 'scan', 'retire', 'purge']);
     expect(ids({ ...base, type: 'server', status: 'active' }, idle)).toEqual([
       'retire',
       'purge',

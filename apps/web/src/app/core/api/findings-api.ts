@@ -1,7 +1,10 @@
 import { HttpClient } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import type {
+  AcceptFindingsRequest,
   AssetFindingsPage,
+  FindingAcceptanceResult,
+  ReopenFindingsRequest,
   AssetVulnerabilitiesPage,
   FindingListQuery,
   FindingSearchResult,
@@ -64,6 +67,16 @@ export class FindingsApi {
     return this.http.get<VulnerabilityDetail>(
       `${this.api}/vulnerabilities/${encodeURIComponent(id)}`,
     );
+  }
+
+  /** «Aceptar el riesgo» de findings abiertos (por id o por CVE), con motivo y caducidad. */
+  accept(body: AcceptFindingsRequest): Observable<FindingAcceptanceResult> {
+    return this.http.post<FindingAcceptanceResult>(`${this.api}/findings/accept`, body);
+  }
+
+  /** Reabre findings con el riesgo aceptado (por id o por CVE). */
+  reopen(body: ReopenFindingsRequest): Observable<FindingAcceptanceResult> {
+    return this.http.post<FindingAcceptanceResult>(`${this.api}/findings/reopen`, body);
   }
 
   /** Re-escanea (con `force`) los afectados por un CVE (admin). */

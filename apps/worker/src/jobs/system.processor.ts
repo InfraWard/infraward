@@ -4,6 +4,8 @@ import {
   JOB_NAMES,
   QUEUE_NAMES,
   VULNERABILITY_ID_PATTERN,
+  type AlertDeliverJobData,
+  type AlertTestJobData,
   type FindingsPrioritizeJobResult,
   type MetricsSampleJobData,
   type MetricsSampleJobResult,
@@ -16,6 +18,7 @@ import {
 } from '@infraward/shared-types';
 import type { Job } from 'bullmq';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { AlertDelivery } from '../alerts/alert-delivery.js';
 import type { EnvironmentVariables } from '../config/env.validation.js';
 import { IntelUpdater } from '../intel/intel-updater.js';
 import { FindingPrioritizer } from '../intel/prioritizer.js';
@@ -37,6 +40,7 @@ export class SystemProcessor {
     private readonly intel: IntelUpdater,
     private readonly prioritizer: FindingPrioritizer,
     private readonly metrics: MetricSampler,
+    private readonly alerts: AlertDelivery,
   ) {
     this.trivyDb = new TrivyDb(trivy.cacheDir);
   }
@@ -61,11 +65,15 @@ export class SystemProcessor {
         return this.metrics.run(
           job as Job<MetricsSampleJobData, MetricsSampleJobResult>,
         );
+      case JOB_NAMES.alertDeliver:
+        return this.alerts.deliver((job as Job<AlertDeliverJobData>).data);
+      case JOB_NAMES.alertTest:
+        return this.alerts.test((job as Job<AlertTestJobData>).data);
       case JOB_NAMES.findingsPrioritize:
         return this.prioritizer.run() satisfies Promise<FindingsPrioritizeJobResult>;
       default:
         throw new Error(
-          `Job desconocido en la cola ${QUEUE_NAMES.system}: ${job.name}`,
+          `Job desconocido en la cola ${job.queueName ?? QUEUE_NAMES.system}: ${job.name}`,
         );
     }
   }

@@ -1,7 +1,8 @@
-import type {
-  AssetStatus,
-  AssetType,
-  ProjectMembershipMode,
+import {
+  byCodeUnit,
+  type AssetStatus,
+  type AssetType,
+  type ProjectMembershipMode,
 } from '@infraward/shared-types';
 import { MAX_TREE_DEPTH } from './asset-tree.js';
 
@@ -80,7 +81,7 @@ export function resolveProjects(input: ProjectsInput): Map<string, string[]> {
       [...decided]
         .filter(([, d]) => d.mode === 'include')
         .map(([projectId]) => projectId)
-        .sort(),
+        .sort(byCodeUnit),
     );
   }
 
@@ -94,7 +95,7 @@ export function resolveProjects(input: ProjectsInput): Map<string, string[]> {
     for (const row of rowsByAsset.get(asset.id) ?? [])
       if (row.mode === 'include') projects.add(row.projectId);
       else projects.delete(row.projectId);
-    result.set(asset.id, [...projects].sort());
+    result.set(asset.id, [...projects].sort(byCodeUnit));
   }
   return result;
 }

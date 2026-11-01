@@ -55,6 +55,8 @@ const run = (extra: Partial<JobRunSummary> = {}): JobRunSummary => ({
   message: 'Recogiendo facts',
   error: null,
   parentJobId: null,
+  parent: null,
+  origin: 'manual',
   worker: 'worker-1',
   createdAt: '2026-10-10T00:00:00.000Z',
   startedAt: '2026-10-10T00:00:01.000Z',

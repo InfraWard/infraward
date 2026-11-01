@@ -1,5 +1,5 @@
 :host ::ng-deep .activity-table {
-  min-width: 58rem;
+  min-width: 64rem;
 }
 
 .head-tags {
@@ -7,6 +7,16 @@
   flex-wrap: wrap;
   gap: 0.5rem;
   align-items: center;
+}
+
+.parent-filter {
+  display: inline-flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.small {
+  font-size: 0.85rem;
 }
 
 .worker {
@@ -21,15 +31,45 @@
 }
 
 .job,
-.asset {
+.asset,
+.origin {
   display: inline-flex;
   gap: 0.4rem;
   align-items: center;
 }
 
+.job {
+  font-weight: 600;
+  color: inherit;
+  text-decoration: none;
+}
+
+.job:hover,
+.job:focus-visible {
+  color: var(--p-primary-color);
+  text-decoration: underline;
+}
+
 .asset {
   color: var(--p-primary-color);
   text-decoration: none;
+}
+
+.sub {
+  font-size: 0.85rem;
+  margin-top: 0.2rem;
+}
+
+.clickable {
+  cursor: pointer;
+}
+
+tr.failed td:first-child {
+  box-shadow: inset 3px 0 0 var(--p-app-danger-color);
+}
+
+.chevron {
+  text-align: center;
 }
 
 :host ::ng-deep .progress {
@@ -42,8 +82,25 @@
   margin-top: 0.25rem;
 }
 
+.clamp {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
 .error {
   color: var(--p-app-danger-color);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 :host ::ng-deep .mb {

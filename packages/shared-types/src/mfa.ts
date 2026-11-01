@@ -34,6 +34,7 @@ export const SENSITIVE_ACTIONS = {
   'vault.settings_change': 'Cambiar los ajustes de la caja fuerte',
   'admin_access.enable': 'Activar el acceso interactivo de administración',
   'access.grant': 'Dar acceso a la terminal',
+  'alerts.channel_change': 'Cambiar los canales de alertas',
 } as const;
 export type SensitiveAction = keyof typeof SENSITIVE_ACTIONS;
 
@@ -51,11 +52,15 @@ export interface RecentAuthError {
 }
 
 /** Permisos que solo leen: un token `role` de quien solo tiene estos no escribe. */
-const READ_PERMISSIONS: readonly Permission[] = ['secrets.status', 'audit.read', 'users.read'];
+const READ_PERMISSIONS: ReadonlySet<Permission> = new Set<Permission>([
+  'secrets.status',
+  'audit.read',
+  'users.read',
+]);
 
 /** ¿Puede escribir algo este rol? (un token de API `role` suyo es «de escritura»). */
 export function roleCanWrite(role: UserRole): boolean {
-  return PERMISSIONS.some((p) => !READ_PERMISSIONS.includes(p) && hasPermission(role, p));
+  return PERMISSIONS.some((p) => !READ_PERMISSIONS.has(p) && hasPermission(role, p));
 }
 
 /** Código TOTP (6 dígitos) o de recuperación (`xxxx-xxxx-xxxx-xxxx`). */

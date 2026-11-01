@@ -167,7 +167,7 @@ export class TypeOrmVaultRowStore implements VaultRowStore {
       : null;
   }
 
-  async list(path: string): Promise<{ version: number; createdAt: Date }[]> {
+  list(path: string): Promise<{ version: number; createdAt: Date }[]> {
     return this.repo.find({
       select: { version: true, createdAt: true },
       where: { path },

@@ -10,21 +10,24 @@ export class MemoryLocalSecretStore implements LocalSecretStore {
   readonly rows = new Map<string, EncryptedSecret>();
   failPing = false;
 
-  async find(path: string): Promise<EncryptedSecret | null> {
+  find(path: string): Promise<EncryptedSecret | null> {
     const row = this.rows.get(path);
-    return row ? structuredClone(row) : null;
+    return Promise.resolve(row ? structuredClone(row) : null);
   }
 
-  async upsert(secret: EncryptedSecret): Promise<void> {
+  upsert(secret: EncryptedSecret): Promise<void> {
     this.rows.set(secret.path, structuredClone(secret));
+    return Promise.resolve();
   }
 
-  async delete(path: string): Promise<boolean> {
-    return this.rows.delete(path);
+  delete(path: string): Promise<boolean> {
+    return Promise.resolve(this.rows.delete(path));
   }
 
-  async ping(): Promise<void> {
-    if (this.failPing) throw new Error('sin conexión');
+  ping(): Promise<void> {
+    return this.failPing
+      ? Promise.reject(new Error('sin conexión'))
+      : Promise.resolve();
   }
 }
 

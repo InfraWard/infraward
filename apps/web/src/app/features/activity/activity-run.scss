@@ -1,0 +1,167 @@
+.back {
+  display: inline-flex;
+  gap: 0.35rem;
+  align-items: center;
+  margin: 0.25rem 0 0.5rem;
+}
+
+.lead {
+  margin: 0;
+}
+
+.asset,
+.origin,
+.job {
+  display: inline-flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.asset {
+  color: var(--p-primary-color);
+  text-decoration: none;
+}
+
+.job {
+  color: inherit;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.job:hover,
+.job:focus-visible {
+  color: var(--p-primary-color);
+  text-decoration: underline;
+}
+
+.live {
+  display: inline-flex;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.progress-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+:host ::ng-deep .progress {
+  flex: 1 1 16rem;
+  max-width: 32rem;
+  height: 0.5rem;
+}
+
+:host ::ng-deep .mb {
+  margin-bottom: 0.75rem;
+}
+
+:host ::ng-deep .mini {
+  font-size: 0.75rem;
+  padding: 0.05rem 0.4rem;
+}
+
+.facts {
+  border: 1px solid var(--p-content-border-color);
+  border-radius: 8px;
+  padding: 0.9rem 1.1rem;
+  margin-bottom: 1.5rem;
+}
+
+.facts dl {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
+  gap: 0.9rem 1.5rem;
+  margin: 0;
+}
+
+.facts [data-fact='origin'] {
+  grid-column: span 2;
+}
+
+.facts .wide {
+  grid-column: 1 / -1;
+}
+
+@media (width < 700px) {
+  .facts [data-fact='origin'] {
+    grid-column: auto;
+  }
+}
+
+dt {
+  font-size: 0.8rem;
+  color: var(--p-text-muted-color);
+  margin-bottom: 0.2rem;
+}
+
+dd {
+  margin: 0;
+}
+
+.sub {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+  font-size: 0.9rem;
+  margin-top: 0.3rem;
+}
+
+.block {
+  margin-bottom: 1.5rem;
+}
+
+.block h2 {
+  font-size: 1.1rem;
+  margin: 0 0 0.75rem;
+}
+
+.block-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.counts {
+  font-size: 0.9rem;
+  font-weight: normal;
+  margin-left: 0.35rem;
+}
+
+.small {
+  font-size: 0.85rem;
+}
+
+.error {
+  color: var(--p-app-danger-color);
+}
+
+.clamp {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.spin {
+  display: inline-block;
+  animation: spin 1.2s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation: none;
+  }
+}

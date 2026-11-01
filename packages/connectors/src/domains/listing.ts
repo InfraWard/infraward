@@ -7,6 +7,7 @@ import {
   type DomainProviderKind,
   type RegistrationFacts,
   type ZoneFacts,
+  byCodeUnit,
 } from '@infraward/shared-types';
 import {
   seenKey,
@@ -72,7 +73,7 @@ export function tlsCandidates(records: readonly ProviderRecord[]): string[] {
         )
         .map((r) => r.name),
     ),
-  ].sort();
+  ].sort(byCodeUnit);
 }
 
 /** Nombre visible de un registro: `www.ejemplo.dev · A`. */

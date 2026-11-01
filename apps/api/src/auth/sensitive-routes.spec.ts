@@ -28,6 +28,9 @@ const EXPECTED: Record<string, string> = {
   'POST /assets/:id/enrollment/token': 'admin_access.enable',
   'POST /assets/enroll': 'admin_access.enable',
   'POST /access-policies': 'access.grant',
+  'POST /alerts/channels': 'alerts.channel_change',
+  'PATCH /alerts/channels/:id': 'alerts.channel_change',
+  'DELETE /alerts/channels/:id': 'alerts.channel_change',
 };
 /** Acciones sin endpoint todavía. */
 const NOT_YET: string[] = [];

@@ -29,14 +29,6 @@ const ana: UserSummary = {
   createdAt: '2026-10-13T00:00:00.000Z',
 };
 
-// jsdom no tiene ResizeObserver (lo usan las pestañas desplazables).
-const noop = (): void => undefined;
-globalThis.ResizeObserver ??= class {
-  observe = noop;
-  unobserve = noop;
-  disconnect = noop;
-};
-
 function configure(component: unknown) {
   TestBed.configureTestingModule({
     imports: [component as never],

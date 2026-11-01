@@ -193,7 +193,7 @@ export class MetricSampler {
       if (current) await this.queue.removeJobScheduler(METRICS_SAMPLE_ID);
       return;
     }
-    const every = hours * 3600_000;
+    const every = hours * 3_600_000;
     if (!current || Number(current.every) !== every) {
       await this.queue.upsertJobScheduler(
         METRICS_SAMPLE_ID,

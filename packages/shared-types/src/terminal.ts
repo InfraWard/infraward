@@ -1,6 +1,7 @@
 // Terminal interactiva a través del gateway (DESIGN §7 «Acceso interactivo de administración», §11).
 
 import { QUEUE_PREFIX } from './jobs.js';
+import { PODMAN_ENABLE_MAX_USERS, PODMAN_USER_NAME } from './podman.js';
 
 /**
  * Cuenta de administración que configura el script de alta con el acceso interactivo activado.
@@ -81,9 +82,32 @@ export type TerminalCloseReason = (typeof TERMINAL_CLOSE_REASONS)[number];
 /** Vida del ticket de un solo uso que el cliente presenta al gateway (segundos). */
 export const TERMINAL_TICKET_TTL_SECONDS = 60;
 
+/**
+ * Acción con un comando fijo en lugar de una shell (terminal de **solo lectura**: la persona ve el
+ * comando y su salida en directo, pero no puede escribir). Entra con la misma cuenta de
+ * administración, los mismos permisos (`terminal.open` y reautenticación) y la misma auditoría.
+ * - `podman-enable`: `PODMAN_ENABLE_SCRIPT` con esos usuarios (detectados en el host).
+ */
+export type TerminalAction = { kind: 'podman-enable'; users: string[] };
+export const TERMINAL_ACTION_KINDS = ['podman-enable'] as const;
+
+/** Valida una acción (null si no es válida). */
+export function parseTerminalAction(value: unknown): TerminalAction | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const v = value as Record<string, unknown>;
+  if (v.kind !== 'podman-enable' || !Array.isArray(v.users)) return null;
+  const users = v.users as unknown[];
+  if (users.length === 0 || users.length > PODMAN_ENABLE_MAX_USERS) return null;
+  if (!users.every((u): u is string => typeof u === 'string' && PODMAN_USER_NAME.test(u)))
+    return null;
+  return { kind: 'podman-enable', users: [...new Set(users)] };
+}
+
 /** Cuerpo de `POST /terminal/sessions`. */
 export interface CreateTerminalSessionRequest {
   assetId: string;
+  /** Sin acción, la shell de siempre. */
+  action?: TerminalAction;
 }
 
 /** Respuesta: el ticket solo se devuelve aquí (en la BD, su sha256). */
@@ -140,7 +164,7 @@ export type TerminalClientMessage =
 /** Gateway → cliente. */
 export type TerminalServerMessage =
   /** Conectado: la shell remota está lista. */
-  | { type: 'ready'; sessionId: string; asset: string; account: string }
+  | { type: 'ready'; sessionId: string; asset: string; account: string; readOnly?: boolean }
   /** Aviso para la persona (parada del gateway, inactividad, duración máxima). */
   | { type: 'notice'; message: string }
   /** Fin de la sesión. `code`: código de salida de la shell, si lo hay. */
@@ -180,10 +204,11 @@ export function parseTerminalClientMessage(text: string): TerminalClientMessage 
 /** Cabecera `Authorization` del gateway: `Gateway <secreto compartido>`. */
 export const GATEWAY_AUTH_SCHEME = 'Gateway';
 
-/** Salto final dentro del host SSH: CT de Proxmox o contenedor Docker (§11). */
+/** Salto final dentro del host SSH: CT de Proxmox o contenedor Docker o Podman (rootful) (§11). */
 export type TerminalHop =
   | { kind: 'pct'; vmid: number }
-  | { kind: 'docker'; containerId: string };
+  | { kind: 'docker'; containerId: string }
+  | { kind: 'podman'; containerId: string };
 
 /**
  * `POST /internal/gateway/sessions/redeem`: el ticket, el gateway que lo canjea y el sha256 (hex)
@@ -205,6 +230,8 @@ export interface RedeemTerminalTicketResponse {
   assetName: string;
   /** Cuenta del servidor con la que se entra (`ADMIN_ACCESS_USER`). */
   account: string;
+  /** Acción de solo lectura (null: shell interactiva). */
+  action: TerminalAction | null;
 }
 
 /** `POST /internal/gateway/sessions/:id/certificate` */

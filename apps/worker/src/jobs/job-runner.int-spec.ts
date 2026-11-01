@@ -21,7 +21,10 @@ describe('JobRunner (BullMQ real)', () => {
   const runs = {
     start: () => Promise.resolve(1),
     track: (job: Job, update: JobRunUpdate) =>
-      Promise.resolve(void tracked.push([job.id!, update])),
+      {
+        tracked.push([job.id!, update]);
+        return Promise.resolve();
+      },
   } as unknown as JobRuns;
 
   beforeAll(async () => {
@@ -64,7 +67,7 @@ describe('JobRunner (BullMQ real)', () => {
     return worker;
   }
 
-  const until = async (check: () => Promise<boolean>, ms = 15_000) => {
+  const until = async (check: () => boolean | Promise<boolean>, ms = 15_000) => {
     const deadline = Date.now() + ms;
     while (!(await check())) {
       if (Date.now() > deadline) throw new Error('tiempo agotado');
@@ -104,7 +107,7 @@ describe('JobRunner (BullMQ real)', () => {
       throw new Error('el proceso murió');
     });
     const job = await queue.add('ping', {}, { jobId: randomUUID(), attempts: 1 });
-    await until(async () => runner.active === 1);
+    await until(() => runner.active === 1);
     await sleep(200);
     const began = Date.now();
     runner.abort('shutdown');
@@ -130,9 +133,9 @@ describe('JobRunner (BullMQ real)', () => {
       throw new Error('cortado');
     });
     const job = await queue.add('ping', {}, { jobId: randomUUID() });
-    await until(async () => runner.active === 1);
+    await until(() => runner.active === 1);
     runner.abort('lock-lost', [job.id!]);
-    await until(async () => aborted);
+    await until(() => aborted);
     expect(tracked.filter(([, u]) => u.state === 'queued')).toEqual([]);
   });
 
@@ -150,7 +153,7 @@ describe('JobRunner (BullMQ real)', () => {
       running--;
       return 'ok';
     };
-    const first = consume(a, work, 1);
+    consume(a, work, 1); // este worker lo cierra el afterEach
     const second = new Worker(
       queue.name,
       (job: Job, token?: string) => b.run(job, token, work),
@@ -178,6 +181,5 @@ describe('JobRunner (BullMQ real)', () => {
       tracked.some(([, u]) => u.message?.startsWith('Otra ejecución de esta operación')),
     ).toBe(true);
     await second.close();
-    void first;
   });
 });

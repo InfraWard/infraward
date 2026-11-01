@@ -1,4 +1,4 @@
-import { formatSearchTerm, type AssetType } from '@infraward/shared-types';
+import { formatSearchTerm, type AssetType, byCodeUnit } from '@infraward/shared-types';
 
 /** Filtros de un widget en la API (DESIGN §15): proyecto, tags (O) y tipos (O); entre ellos, Y. */
 export interface WidgetScope {
@@ -53,7 +53,7 @@ export function scopeSearchQuery(scope: WidgetScope): string | undefined {
 export function scopeKey(scope: WidgetScope): string {
   return JSON.stringify([
     scope.projectId ?? null,
-    [...(scope.tags ?? [])].sort(),
-    [...(scope.types ?? [])].sort(),
+    [...(scope.tags ?? [])].sort(byCodeUnit),
+    [...(scope.types ?? [])].sort(byCodeUnit),
   ]);
 }

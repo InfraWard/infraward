@@ -31,6 +31,9 @@
     @if (canSee('vault')) {
       <p-tab value="vault" data-tab="vault"><i class="bi bi-safe2" aria-hidden="true"></i> Caja fuerte</p-tab>
     }
+    @if (canSee('alerts')) {
+      <p-tab value="alerts" data-tab="alerts"><i class="bi bi-send" aria-hidden="true"></i> Alertas</p-tab>
+    }
     @if (canSee('audit')) {
       <p-tab value="audit" data-tab="audit"><i class="bi bi-journal-text" aria-hidden="true"></i> Auditoría</p-tab>
     }
@@ -60,6 +63,11 @@
     @if (canSee('connectors')) {
       <p-tabpanel value="connectors">
         <ng-template #content><app-connectors-settings /></ng-template>
+      </p-tabpanel>
+    }
+    @if (canSee('alerts')) {
+      <p-tabpanel value="alerts">
+        <ng-template #content><app-alerts-settings /></ng-template>
       </p-tabpanel>
     }
     @if (canSee('access')) {

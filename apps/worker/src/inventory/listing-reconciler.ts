@@ -93,7 +93,7 @@ export class ListingReconciler {
         where: { id: parentId },
         lock: { mode: 'pessimistic_write' },
       });
-      if (!parent || parent.status !== 'active')
+      if (parent?.status !== 'active')
         throw new DiscoveryError(
           'El asset se retiró o cambió de estado durante el descubrimiento',
         );

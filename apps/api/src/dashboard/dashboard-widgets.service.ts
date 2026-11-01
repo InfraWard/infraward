@@ -42,9 +42,11 @@ import {
   type VulnerabilityCountsData,
 } from '@infraward/shared-types';
 import { DataSource } from 'typeorm';
+import { countsInSummarySql } from '../assets/open-findings.js';
 import { findingWhere } from '../findings/finding-where.js';
 import {
   JOB_RUN_COLUMNS,
+  JOB_RUN_FROM,
   JobRunsService,
   toJobRunSummary,
 } from '../jobs/job-runs.service.js';
@@ -261,8 +263,8 @@ export class DashboardWidgetsService {
 
   /**
    * Hallazgos abiertos por severidad, críticos y altos con parche y CVE distintos, con el criterio
-   * de la tarjeta de un proyecto (`ProjectsService.stats`): dueños no retirados que escanean, ruido
-   * incluido; los tags y tipos se aplican al dueño.
+   * de la tarjeta de un proyecto (`ProjectsService.stats`): dueños no retirados que escanean, sin
+   * los de un kernel que no está en ejecución; los tags y tipos se aplican al dueño.
    */
   async fixableVulnerabilities(
     scope: WidgetScope,
@@ -272,6 +274,7 @@ export class DashboardWidgetsService {
       `f.status = 'open'`,
       `o.status <> 'retired'`,
       scanEnabledSql('o'),
+      countsInSummarySql(),
       ...assetScopeSql('o', scope, p.push),
     ];
     const from = `findings f JOIN assets o ON o.id = f.asset_id WHERE ${where.join(' AND ')}`;
@@ -369,7 +372,7 @@ export class DashboardWidgetsService {
     const [rows, running] = await Promise.all([
       this.db.query(
         `SELECT ${JOB_RUN_COLUMNS}
-           FROM job_runs r LEFT JOIN assets a ON a.id = r.asset_id
+           FROM ${JOB_RUN_FROM}
           ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
           ORDER BY r.created_at DESC, r.id LIMIT ${lim}`,
         p.values,

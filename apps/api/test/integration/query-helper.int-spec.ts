@@ -24,6 +24,9 @@ import {
   expectedCalls,
   HELPER_BINARIES,
   NGINX_SECRET_CONFIG,
+  CONTAINER_PODMAN_UID,
+  PODMAN_UID,
+  PODMAN_USER,
   PVE_FILES,
   SAMPLES,
 } from '../support/query-helper-cases.js';
@@ -67,7 +70,11 @@ describe.each<SshdVariant>(['debian', 'sudo-rs'])(
       ).join('; ');
       // Un ayudante de Plesk de la v3 que la actualización tiene que borrar.
       const legacy = `mkdir -p /usr/local/libexec/infraward && printf '#!/bin/sh\\n' > ${LEGACY_PLESK_QUERY_HELPER} && chmod 755 ${LEGACY_PLESK_QUERY_HELPER}`;
-      const setup = await sshd.root(`${stubs}; ${pve}; ${legacy}`);
+      // Podman rootless (v8): `nobody` en la lista de usuarios (el alta sin --podman-users no la toca).
+      const podmanUsers = `mkdir -p /etc/infraward && printf '%s\\n' ${PODMAN_USER} > /etc/infraward/podman-users`;
+      const setup = await sshd.root(
+        `${stubs}; ${pve}; ${legacy}; ${podmanUsers}`,
+      );
       expect(setup.code, setup.stderr).toBe(0);
 
       const script = template.render({
@@ -156,12 +163,16 @@ describe.each<SshdVariant>(['debian', 'sudo-rs'])(
 
     it('todas las consultas de la lista pasan por sudo con el argv exacto', async () => {
       for (const [name, list] of Object.entries(SAMPLES)) {
-        for (const args of list) {
+        // El uid de nobody de la máquina que lanza el test puede no ser el del contenedor (macOS).
+        for (const args of list.map((l) =>
+          l.map((a) => (a === PODMAN_UID ? CONTAINER_PODMAN_UID : a)),
+        )) {
           const r = await asInventory([INFRAWARD_QUERY_HELPER, name, ...args]);
           expect(r.code, `${name} ${args.join(' ')}: ${r.stderr}`).toBe(0);
           expect(await calls(), name).toEqual(
             expectedCalls(
               expandQuery({ name: name as PrivilegedQueryName, args }),
+              'real',
             ),
           );
         }

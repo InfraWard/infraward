@@ -11,18 +11,6 @@ Thanks for your interest in InfraWard! Bug reports, ideas, documentation fixes a
 
 The code comments and most of the documentation are currently in Spanish. Issues and pull requests in English or Spanish are both welcome.
 
-## Contributor License Agreement (CLA)
-
-Before your first pull request can be merged, you must sign the [InfraWard Individual Contributor License Agreement](CLA.md). It only takes a minute and you sign it once for all your future contributions:
-
-1. Open your pull request.
-2. The **CLA Assistant** bot comments on it with a link.
-3. Sign in with GitHub and accept the agreement. The `license/cla` check turns green.
-
-The CLA lets the project owner distribute your contribution under the project's license (AGPL-3.0) and, if needed in the future, under other licenses, while committing to keep every released version available under an OSI-approved open source license. You keep the copyright of your work. A Spanish translation for information is in [CLA.es.md](CLA.es.md); the English version is the binding one.
-
-If your contribution is owned by your employer, make sure you are allowed to contribute it (see section 4 of the CLA).
-
 ## Development setup
 
 Requirements:
@@ -101,4 +89,4 @@ Depending on what you changed:
 
 ## License
 
-InfraWard is licensed under the [GNU Affero General Public License v3.0](LICENSE). By contributing, you agree that your contributions are licensed as described in the [CLA](CLA.md).
+InfraWard is licensed under the [GNU Affero General Public License v3.0](LICENSE). There is no Contributor License Agreement: by contributing, you agree that your contributions are licensed under the same license, and you keep the copyright of your work. If your contribution is owned by your employer, make sure you are allowed to contribute it.

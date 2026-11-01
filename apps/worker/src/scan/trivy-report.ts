@@ -31,7 +31,7 @@ export function parseTrivyReport(json: string): TrivyScan {
     throw new TrivyError('El informe de Trivy no es JSON');
   }
   const r = record(report);
-  if (!r || r.SchemaVersion !== 2 || !Array.isArray(r.Results ?? []))
+  if (r?.SchemaVersion !== 2 || !Array.isArray(r.Results ?? []))
     throw new TrivyError('Informe de Trivy no reconocido (SchemaVersion 2)');
   const metadata = record(r.Metadata);
   const byFingerprint = new Map<string, ImageVulnerability>();

@@ -26,6 +26,7 @@ import {
   totpSecretOf,
 } from './support/app.js';
 import { FakeOidcProvider, type FakeOidcUser } from './support/fake-oidc.js';
+import { OIDC_REAUTH_MAX_AGE_SECONDS } from '../src/auth/oidc/oidc.service.js';
 
 const WEB = 'http://infraward.test';
 const FLOW_COOKIE = '__Host-iw_oidc';
@@ -586,7 +587,8 @@ describe('MFA y reautenticación (e2e)', () => {
       const { code, state } = fake.authorize(location, ana, { authTime: 0 });
       // El proveedor debe volver a pedir las credenciales.
       expect(fake.lastAuthorization?.get('prompt')).toBe('login');
-      expect(fake.lastAuthorization?.get('max_age')).toBe('0');
+      // No 0: Authentik lo ignora (ver OIDC_REAUTH_MAX_AGE_SECONDS).
+      expect(fake.lastAuthorization?.get('max_age')).toBe(String(OIDC_REAUTH_MAX_AGE_SECONDS));
       const back = await callback({ code, state }, binding);
       expect(back.statusCode).toBe(302);
       expect(back.headers.location).toBe(`${WEB}/inventory/${id}?tab=resumen&reauth=ok`);

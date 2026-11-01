@@ -1,4 +1,3 @@
-import type { AuditAction } from '@infraward/shared-types';
 import type { AuditActor } from '../audit/audit-context.decorator.js';
 import { AuditService } from '../audit/audit.service.js';
 import {
@@ -23,6 +22,7 @@ import {
   INVENTORY_RULE_FIELDS,
   normalizeScanExclusions,
   JOB_NAMES,
+  type AuditAction,
   type AssetPolicy,
   type EnqueueJobResponse,
   type InventoryPolicyFields,

@@ -2,6 +2,7 @@ import {
   JOB_RUN_STATES,
   type JobName,
   type JobRunState,
+  type JobRunTrigger,
   type QueueName,
 } from '@infraward/shared-types';
 import {
@@ -73,6 +74,13 @@ export class JobRun {
    */
   @Column({ name: 'parent_job_id', type: 'uuid', nullable: true })
   parentJobId: string | null;
+
+  /**
+   * Qué lo lanzó si no cuelga de otro (`JOB_RUN_TRIGGERS`): la API, la comprobación periódica o
+   * el alta. Lo pone quien encola; null en las filas que creó el worker al empezar.
+   */
+  @Column({ type: 'varchar', length: 16, nullable: true })
+  trigger: JobRunTrigger | null;
 
   /** Réplica del worker que lo ejecuta o lo ejecutó por última vez (DESIGN §20). */
   @Column({ type: 'varchar', length: 64, nullable: true })

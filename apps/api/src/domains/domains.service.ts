@@ -298,7 +298,7 @@ export class DomainsService {
     const records: AssetDomainRecord[] = [];
     for (const r of rows) {
       const a = byId.get(r.record_id);
-      if (!a || a.type !== 'dns_record' || a.status === 'retired' || !a.dns) continue;
+      if (a?.type !== 'dns_record' || a.status === 'retired' || !a.dns) continue;
       records.push({
         record: toAssetSummary(a),
         domain: a.domain_id
@@ -348,7 +348,7 @@ export class DomainsService {
    * Marca como esperados todos los avisos **informativos** con ese destino (p. ej. la IP pública
    * de casa, a la que apuntan muchos registros). Los de prioridad alta, nunca en bloque.
    */
-  async acceptTarget(
+  acceptTarget(
     target: string,
     actor: AuditActor,
   ): Promise<AcceptDnsTargetResponse> {
@@ -382,7 +382,7 @@ export class DomainsService {
     return this.setAcceptance(id, actor, false);
   }
 
-  private async setAcceptance(
+  private setAcceptance(
     id: string,
     actor: AuditActor,
     accept: boolean,
@@ -460,7 +460,7 @@ export class DomainsService {
 
   private async connector(id: string): Promise<Asset> {
     const asset = await this.db.getRepository(Asset).findOneBy({ id });
-    if (!asset || asset.type !== 'dns_provider')
+    if (asset?.type !== 'dns_provider')
       throw new NotFoundException('Conector no encontrado');
     if (asset.status === 'retired')
       throw new ConflictException('El conector está dado de baja');

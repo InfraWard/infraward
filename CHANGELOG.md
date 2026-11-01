@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-01
+
+### Added
+
+- Accept the risk of a finding: from the CVE page, the vulnerability list (in bulk) or by CVE across a project, with a mandatory reason and an optional expiry date (up to one year). Accepted findings stop counting as open but still show as affected in the CVE search; when the expiry date passes they reopen automatically with a notification, and a scan that no longer sees them marks them fixed. Accepting and reopening are audited and need the new `findings.accept` permission (admin and editor).
+- Outbound alerts: the notifications of the in-app bell can also go out by webhook (JSON POST, optionally signed with HMAC-SHA256) or email (the worker's SMTP), configured by admins in Settings › Alertas with a per-channel filter and a test button. The webhook URL and signing secret are kept in the secrets manager, and the worker protects against SSRF (HTTPS only by default, no loopback, link-local or private targets unless allowed, no redirects, connects to the validated address). Deliveries run on their own `alerts` queue (`ALERTS_CONCURRENCY`) with retries, and a notification is only marked as sent once its deliveries are queued.
+- Log of every collection, discovery and scan, viewable from the asset page ("Recolecciones" tab): the steps, every command the worker ran (ssh, ansible-playbook, trivy…) with its duration and exit code, the Ansible tasks, the end of the stderr of whatever failed and the result. Secrets, keys and tokens are redacted before saving, each run's log is capped (`COLLECTION_LOG_MAX_KB`, 256 KiB) and logs are deleted after `COLLECTION_LOG_RETENTION_DAYS` (30 days). Failed runs are highlighted and a running job refreshes until it finishes. New endpoints `GET /assets/{id}/runs` and `GET /assets/{id}/runs/{runId}/log`; reading a log requires the `assets.operate` permission (admin, editor, operator), since it carries error output from the servers.
+- Redesigned Activity page. Each run now says where it came from: a bulk operation, another task (a collection that triggered a discovery, a reconciliation that queued collections…), the periodic inventory check, a manual request or an enrollment, with a link to the task or bulk operation that launched it, and the list can be filtered by origin. Clicking a run opens its own page (`/activity/{id}`) with its timing, the tasks it launched and its log, also for runs without an asset. The asset's "Recolecciones" tab, the "Actividad reciente" widget and the bulk-operation result link to it. New endpoints `GET /jobs/runs/{id}` and `GET /jobs/runs/{id}/log` (the log requires `assets.operate`) and the `origin` filter on `GET /jobs`. Runs recorded before this version show no origin.
+- Podman support (part of #10): hosts with Podman get the new `podman-host` role and their containers, images, volumes and networks are inventoried with the native `podman` CLI, without `podman-docker` or a root socket. Pods (the pod's infra container is skipped) and quadlet/systemd containers (`PODMAN_SYSTEMD_UNIT`) are shown on the container. Rootless Podman users are detected automatically with read-only signals (running containers, an active user socket, or container storage in their home) and listed in the new «Usuarios de Podman» card of the server; their containers are inventoried, through each user's own Podman socket and marked with their user, once the user is enabled. «Habilitar» shows a command to copy and run with sudo (it turns on linger and the user's `podman.socket` and adds the user to `/etc/infraward/podman-users`, which remains the server-side consent) or, if the server has the admin access and you can open a terminal, runs it as `infraward-admin` in a new read-only terminal where you see the command and its output without being able to type. The enrollment option `--podman-users=<user,…>` is kept as an optional override. Detected users that are not enabled, and enabled users without an active socket, raise a warning on the server. Images are scanned with `podman save --format docker-archive`, the web terminal opens in rootful Podman containers, and Docker and Podman can coexist on the same host. A read-only terminal action never runs when the page loads: it waits for you to press «Ejecutar». Queries to a rootless user's socket run as that user (`runuser`), never as root, and an image taken from a rootless user's store is only scanned if its config and every layer match the image ID. Requires sudoers v8: re-run the enrollment script on Podman hosts.
+
+### Removed
+
+- The Contributor License Agreement (`CLA.md`, `CLA.es.md`) and the CLA Assistant check on pull requests. Contributions are now accepted under the project's license (AGPL-3.0) without signing anything.
+
+### Fixed
+
+- A failed run's error was shown twice at the end of its log ("Fallo: …" and "Fallido: …").
+- The web terminal never opened in production builds ("No se pudo cargar la terminal"): xterm.js is a CommonJS package and the production bundle only exposes it as a default export, so the terminal class was not found. "Reconectar" now also retries loading the terminal, and leaving the page to confirm your identity no longer triggers the browser's "leave site?" prompt while no session is open.
+- Confirming your identity with an OIDC provider (step-up before opening a terminal and other sensitive actions) failed with authentik from the second time in the same provider session: authentik ignores `max_age=0` and does not ask for credentials again on later `prompt=login` requests, so the returned `auth_time` was stale. The request now uses `max_age=30`, which authentik enforces.
+- A fully patched RHEL-family server (e.g. Rocky Linux 10) showed hundreds of open HIGH vulnerabilities with a patch available: dnf keeps the previous kernels installed (`installonly_limit`) and Trivy reports, for each package of each older kernel, every CVE fixed since then. Findings on kernels that are not running (and on kernel headers and tools) no longer count in the asset, inventory tree, project and dashboard summaries; the asset overview shows them apart, and the asset's Vulnerabilities tab now hides them by default like the main list, saying how many were left out, with an "Incluir lo oculto" toggle.
+
 ## [0.5.2] - 2026-10-31
 
 ### Added
@@ -124,7 +145,8 @@ Initial release.
 - Domain inventory with Cloudflare, RDAP, certificates and dangling DNS records.
 - Light and dark theme.
 
-[Unreleased]: https://github.com/InfraWard/infraward/compare/v0.5.2...HEAD
+[Unreleased]: https://github.com/InfraWard/infraward/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/InfraWard/infraward/compare/v0.5.2...v0.6.0
 [0.5.2]: https://github.com/InfraWard/infraward/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/InfraWard/infraward/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/InfraWard/infraward/releases/tag/v0.5.0

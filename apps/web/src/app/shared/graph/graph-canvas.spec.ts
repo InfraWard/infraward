@@ -32,14 +32,6 @@ function fakeEngine() {
   return { calls, factory: () => Promise.resolve((() => cy) as never) };
 }
 
-// jsdom no tiene ResizeObserver.
-const noop = (): void => undefined;
-globalThis.ResizeObserver ??= class {
-  observe = noop;
-  unobserve = noop;
-  disconnect = noop;
-};
-
 const els = (ids: string[]): ElementDefinition[] =>
   ids.map((id) => ({ group: 'nodes', data: { id, label: id } }));
 

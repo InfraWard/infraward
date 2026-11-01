@@ -64,16 +64,11 @@ export class EnrollmentProcessor {
   ) {}
 
   async process(job: Job): Promise<unknown> {
-    switch (job.name) {
-      case JOB_NAMES.enrollmentVerify:
-        return this.verify(
-          job as Job<EnrollmentVerifyJobData, EnrollmentVerifyJobResult>,
-        );
-      default:
-        throw new Error(
-          `Job desconocido en la cola ${job.queueName}: ${job.name}`,
-        );
-    }
+    if (job.name === JOB_NAMES.enrollmentVerify)
+      return this.verify(
+        job as Job<EnrollmentVerifyJobData, EnrollmentVerifyJobResult>,
+      );
+    throw new Error(`Job desconocido en la cola ${job.queueName}: ${job.name}`);
   }
 
   private async verify(
@@ -200,7 +195,7 @@ export class EnrollmentProcessor {
    * Si el enrolamiento era en modo CA y el asset tenía clave estática, pasa a modo CA y se quita
    * la referencia; devuelve la referencia para borrar la clave del proveedor tras el commit.
    */
-  private async markVerified(
+  private markVerified(
     enrollment: Enrollment,
     result: Omit<EnrollmentVerifyJobResult, 'collectJobId'>,
   ): Promise<string | null> {

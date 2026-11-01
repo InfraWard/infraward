@@ -2,6 +2,7 @@ import { Asset } from '@infraward/domain';
 import {
   TERMINAL_CLOSE_REASONS,
   TERMINAL_SESSION_STATES,
+  type TerminalAction,
   type TerminalCloseReason,
   type TerminalSessionState,
 } from '@infraward/shared-types';
@@ -141,4 +142,8 @@ export class TerminalSession {
   /** Motivo apto para mostrarse (p. ej. el fallo de conexión). */
   @Column({ name: 'close_message', type: 'varchar', length: 500, nullable: true })
   closeMessage: string | null;
+
+  /** Acción de solo lectura (comando fijo); null = shell interactiva. */
+  @Column({ type: 'jsonb', nullable: true })
+  action: TerminalAction | null;
 }

@@ -1,5 +1,5 @@
 import { DatePipe } from '@angular/common';
-import { Component, computed, inject, input, signal } from '@angular/core';
+import { Component, computed, inject, input, LOCALE_ID, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import {
@@ -7,12 +7,15 @@ import {
   SEVERITIES,
   type ContainerImageSummary,
   type SbomSummary,
+  type FindingAcceptance,
   type FindingListQuery,
   type FindingStatus,
+  type NoiseReason,
   type PriorityBand,
   type Severity,
   type VulnerabilityGroup,
   HIDDEN_REASON_LABELS,
+  NOISE_REASONS,
   PRIORITY_BAND_LABELS,
   PRIORITY_BANDS,
 } from '@infraward/shared-types';
@@ -22,6 +25,8 @@ import { MessageModule } from '@openng/optimus-ui/message';
 import { SelectModule } from '@openng/optimus-ui/select';
 import { TableModule } from '@openng/optimus-ui/table';
 import { TagModule } from '@openng/optimus-ui/tag';
+import { TooltipModule } from '@openng/optimus-ui/tooltip';
+import { acceptanceText } from '../../shared/accept-risk-dialog';
 import type { TableLazyLoadEvent } from '@openng/optimus-ui/types/table';
 import { FindingsApi } from '../../core/api/findings-api';
 import { SEVERITY_TAG, type TagSeverity } from '../../shared/labels';
@@ -150,6 +155,7 @@ export function packagesLabel(group: VulnerabilityGroup, shown = 2): string {
     SelectModule,
     TableModule,
     TagModule,
+    TooltipModule,
     PriorityReasons,
     PriorityScore,
   ],
@@ -213,6 +219,20 @@ export function packagesLabel(group: VulnerabilityGroup, shown = 2): string {
     <p class="summary muted" data-total>
       {{ total() }} {{ total() === 1 ? 'vulnerabilidad' : 'vulnerabilidades' }}
       {{ filtered() ? 'con este filtro' : 'en total' }} (una fila por CVE).
+      @if (hiddenCounts().length) {
+        <span data-hidden>
+          Fuera de esta vista:
+          @for (h of hiddenCounts(); track h.reason; let last = $last) {
+            <a
+              href=""
+              (click)="$event.preventDefault(); setNoise(true)"
+              [attr.data-hidden-reason]="h.reason"
+              >{{ h.count.toLocaleString('es-ES') }} {{ hiddenLabels[h.reason] }}</a
+            >{{ last ? '' : ' · ' }}
+          }
+          (hallazgos).
+        </span>
+      }
     </p>
 
     <div class="filters">
@@ -259,13 +279,27 @@ export function packagesLabel(group: VulnerabilityGroup, shown = 2): string {
         />
         <label for="fixable">Solo con parche</label>
       </span>
+      <span class="check">
+        <p-checkbox
+          inputId="assetNoise"
+          [binary]="true"
+          [ngModel]="withNoise()"
+          (ngModelChange)="setNoise($event)"
+          data-filter="noise"
+        />
+        <label
+          for="assetNoise"
+          pTooltip="Kernels instalados que no están en ejecución (y sus cabeceras y herramientas) y lo que la distribución no va a corregir"
+          >Incluir lo oculto</label
+        >
+      </span>
       @if (filtered()) {
         <p-button
           label="Ver todas"
           icon="bi bi-funnel"
           severity="secondary"
           [text]="true"
-          (onClick)="setFilter(showAll(filter()))"
+          (onClick)="setFilter(showAll(filter()), true)"
           data-action="show-all"
         />
       } @else {
@@ -274,7 +308,7 @@ export function packagesLabel(group: VulnerabilityGroup, shown = 2): string {
           icon="bi bi-funnel-fill"
           severity="secondary"
           [text]="true"
-          (onClick)="setFilter(defaults)"
+          (onClick)="setFilter(defaults, false)"
           data-action="defaults"
         />
       }
@@ -380,7 +414,15 @@ export function packagesLabel(group: VulnerabilityGroup, shown = 2): string {
                         <span class="muted">sin parche</span>
                       }
                     </td>
-                    <td>{{ statusLabels[p.status] }}</td>
+                    <td>
+                      @if (p.status === 'accepted' && p.acceptance) {
+                        <span class="accepted" [pTooltip]="acceptanceTooltip(p.acceptance)" tabindex="0" data-accepted>
+                          <i class="bi bi-shield-check" aria-hidden="true"></i> {{ statusLabels[p.status] }}
+                        </span>
+                      } @else {
+                        {{ statusLabels[p.status] }}
+                      }
+                    </td>
                     <td>
                       {{ p.priority ?? '—' }}
                       @if (p.noiseReason) {
@@ -401,7 +443,7 @@ export function packagesLabel(group: VulnerabilityGroup, shown = 2): string {
               Nada que corregir con este filtro.
               <a
                 href=""
-                (click)="$event.preventDefault(); setFilter(showAll(filter()))"
+                (click)="$event.preventDefault(); setFilter(showAll(filter()), true)"
                 >Ver todas</a
               >
             } @else {
@@ -488,6 +530,11 @@ export function packagesLabel(group: VulnerabilityGroup, shown = 2): string {
 })
 export class AssetFindings {
   private readonly api = inject(FindingsApi);
+  private readonly datePipe = new DatePipe(inject(LOCALE_ID));
+
+  protected acceptanceTooltip(a: FindingAcceptance): string {
+    return acceptanceText(a, this.datePipe);
+  }
 
   readonly assetId = input.required<string>();
   /** Escaneo desactivado por su política (§10): se avisa y sus findings no cuentan fuera. */
@@ -533,7 +580,28 @@ export class AssetFindings {
   protected readonly filter = signal<FindingsFilter>(
     filterFromParams(this.route.snapshot.queryParams),
   );
-  protected readonly filtered = computed(() => isFiltered(this.filter()));
+  /**
+   * `?noise=1`: también el ruido (kernel no en uso, sin corrección prevista). Por defecto fuera,
+   * como en la vista principal: dnf guarda varios kernels y los antiguos llevan cientos de CVE ya
+   * corregidos en el que corre.
+   */
+  protected readonly withNoise = signal(
+    this.route.snapshot.queryParams['noise'] === '1',
+  );
+  protected readonly filtered = computed(
+    () => isFiltered(this.filter()) || !this.withNoise(),
+  );
+  /** Findings fuera por ruido, por motivo (solo los que hay). */
+  protected readonly hidden = signal<Partial<Record<NoiseReason, number>> | null>(
+    null,
+  );
+  protected readonly hiddenCounts = computed(() => {
+    const hidden = this.hidden() ?? {};
+    return NOISE_REASONS.filter((r) => (hidden[r] ?? 0) > 0).map((reason) => ({
+      reason,
+      count: hidden[reason]!,
+    }));
+  });
   protected readonly items = signal<VulnerabilityGroup[]>([]);
   protected readonly expanded = signal<Record<string, boolean>>({});
   protected readonly packagesLabel = packagesLabel;
@@ -551,15 +619,24 @@ export class AssetFindings {
     this.setFilter({ ...this.filter(), ...change });
   }
 
-  setFilter(filter: FindingsFilter): void {
+  /** Con o sin el ruido (y, si se indica, también cambia eso). */
+  setFilter(filter: FindingsFilter, noise?: boolean): void {
     this.filter.set(filter);
+    if (noise !== undefined) this.withNoise.set(noise);
     void this.router.navigate([], {
       relativeTo: this.route,
-      queryParams: paramsFromFilter(filter),
+      queryParams: {
+        ...paramsFromFilter(filter),
+        noise: this.withNoise() ? '1' : null,
+      },
       queryParamsHandling: 'merge',
       replaceUrl: true,
     });
     this.load(0);
+  }
+
+  setNoise(on: boolean): void {
+    this.setFilter(this.filter(), on);
   }
 
   onLazyLoad(event: TableLazyLoadEvent): void {
@@ -578,7 +655,10 @@ export class AssetFindings {
     this.api
       .assetVulnerabilities(
         this.assetId(),
-        toQuery(this.filter(), { offset, limit: FINDINGS_PAGE }),
+        {
+          ...toQuery(this.filter(), { offset, limit: FINDINGS_PAGE }),
+          includeNoise: this.withNoise(),
+        },
       )
       .subscribe({
         next: (page) => {
@@ -586,6 +666,7 @@ export class AssetFindings {
           this.items.set(page.items);
           this.expanded.set({});
           this.total.set(page.total);
+          this.hidden.set(page.hidden ?? null);
           this.image.set(page.image);
           this.sbom.set(page.sbom);
           this.loaded.set(true);

@@ -1,5 +1,6 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { AlertDelivery } from '../alerts/alert-delivery.js';
 import {
   INVENTORY_RECONCILE_ID,
   QUEUE_NAMES,
@@ -12,20 +13,25 @@ import { InventoryReconciler } from '../inventory/reconciler.js';
 import { MetricSampler } from '../metrics/metric-sampler.js';
 import { DistributedLock } from '../redis/distributed-lock.js';
 import type { LeaderHooks } from '../redis/leader.js';
+import { AcceptanceExpiry } from '../scan/acceptance-expiry.js';
 import { ScanScheduler } from '../scan/scan-scheduler.js';
 import { JobEventsListener } from './job-events-listener.js';
 import { JobQueues } from './job-queues.js';
+import { JobRunLogs } from './job-run-logs.js';
 import { JobRuns } from './job-runs.js';
 import { OrphanSweeper } from './orphan-sweeper.js';
 
 const SWEEP_EVERY_MS = 60_000;
 const PRUNE_EVERY_MS = 60 * 60_000;
+const ACCEPTANCE_EXPIRY_EVERY_MS = 5 * 60_000;
+const ALERTS_DISPATCH_EVERY_MS = 10_000;
 
 /**
  * Lo que hace solo el líder (DESIGN §20): programar los jobs periódicos (job schedulers de BullMQ:
  * un disparo por intervalo para todas las réplicas), pedir el recálculo de prioridades del
  * arranque, escuchar los eventos de las colas (Actividad), recuperar huérfanos y podar el
- * historial. Si deja de ser líder, para lo suyo; el siguiente lo retoma.
+ * historial, repartir las notificaciones a los canales de alertas y reabrir los riesgos
+ * aceptados caducados. Si deja de ser líder, para lo suyo; el siguiente lo retoma.
  */
 @Injectable()
 export class LeaderTasks implements LeaderHooks {
@@ -44,6 +50,9 @@ export class LeaderTasks implements LeaderHooks {
     private readonly intel: IntelUpdater,
     private readonly metrics: MetricSampler,
     @Optional() private readonly prioritize?: PrioritizeTrigger,
+    @Optional() private readonly acceptances?: AcceptanceExpiry,
+    @Optional() private readonly alerts?: AlertDelivery,
+    @Optional() private readonly logs?: JobRunLogs,
   ) {}
 
   async elected(): Promise<void> {
@@ -70,10 +79,32 @@ export class LeaderTasks implements LeaderHooks {
       .catch((error: unknown) =>
         this.logger.warn(`Barrido de huérfanos: ${(error as Error).name}`),
       );
-    every(PRUNE_EVERY_MS, () =>
-      this.runs.prune(this.config.get('JOB_RUNS_RETENTION_DAYS', { infer: true })),
-    );
-    void this.runs.prune(this.config.get('JOB_RUNS_RETENTION_DAYS', { infer: true }));
+    every(PRUNE_EVERY_MS, () => this.prune());
+    void this.prune();
+    const alerts = this.alerts;
+    if (alerts) {
+      void alerts
+        .publishStatus()
+        .catch((error: unknown) =>
+          this.logger.warn(`Estado de las alertas: ${(error as Error).name}`),
+        );
+      every(ALERTS_DISPATCH_EVERY_MS, () => alerts.dispatch());
+    }
+    const acceptances = this.acceptances;
+    if (acceptances) {
+      every(ACCEPTANCE_EXPIRY_EVERY_MS, () => acceptances.run());
+      void acceptances
+        .run()
+        .catch((error: unknown) =>
+          this.logger.warn(`Caducidad de riesgos aceptados: ${(error as Error).name}`),
+        );
+    }
+  }
+
+  /** Historial de ejecuciones (y avisos) y logs de las ejecuciones, cada uno con su retención. */
+  async prune(): Promise<void> {
+    await this.runs.prune(this.config.get('JOB_RUNS_RETENTION_DAYS', { infer: true }));
+    await this.logs?.prune(this.config.get('COLLECTION_LOG_RETENTION_DAYS', { infer: true }));
   }
 
   async demoted(): Promise<void> {

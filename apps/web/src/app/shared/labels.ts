@@ -4,6 +4,8 @@ import type {
   AssetStatus,
   AssetType,
   JobName,
+  JobRunOrigin,
+  JobRunParent,
   JobRunState,
   ServiceCutReason,
   ServicePathStatus,
@@ -149,6 +151,8 @@ export const JOB_LABELS: Record<JobName, string> = {
   'vulnerability.intel': 'Descarga de KEV y EPSS',
   'findings.prioritize': 'Prioridad de las vulnerabilidades',
   'metrics.sample': 'Muestra diaria de métricas',
+  'alert.deliver': 'Envío de una alerta',
+  'alert.test': 'Prueba de un canal de alertas',
 };
 
 export const JOB_ICONS: Record<JobName, string> = {
@@ -168,6 +172,8 @@ export const JOB_ICONS: Record<JobName, string> = {
   'vulnerability.intel': 'bi-cloud-arrow-down',
   'findings.prioritize': 'bi-sort-down',
   'metrics.sample': 'bi-graph-up',
+  'alert.deliver': 'bi-send',
+  'alert.test': 'bi-send-check',
 };
 
 export const JOB_STATE_LABELS: Record<JobRunState, string> = {
@@ -183,6 +189,45 @@ export const JOB_STATE_SEVERITY: Record<JobRunState, TagSeverity> = {
   completed: 'success',
   failed: 'danger',
 };
+
+/** De dónde viene una ejecución (Actividad). */
+export const JOB_ORIGIN_LABELS: Record<JobRunOrigin, string> = {
+  bulk: 'En lote',
+  chain: 'Encadenada',
+  manual: 'Manual',
+  schedule: 'Programada',
+  enrollment: 'Alta',
+};
+
+export const JOB_ORIGIN_ICONS: Record<JobRunOrigin, string> = {
+  bulk: 'bi-ui-checks',
+  chain: 'bi-diagram-2',
+  manual: 'bi-person',
+  schedule: 'bi-clock-history',
+  enrollment: 'bi-box-arrow-in-down',
+};
+
+export const JOB_ORIGIN_HINTS: Record<JobRunOrigin, string> = {
+  bulk: 'La lanzó una operación en lote',
+  chain: 'La encoló otra tarea (recolección → descubrimiento → escaneos, reconciliación → recolecciones)',
+  manual: 'Pedida desde la web o la API',
+  schedule: 'La lanzó la comprobación periódica del inventario',
+  enrollment: 'La lanzó el alta del servidor',
+};
+
+/** «Recolectar · 12 assets» del resumen de un lote (sin omitidos, tareas ni quién lo lanzó). */
+export function bulkSummary(message: string | null | undefined): string | null {
+  if (!message) return null;
+  return message.split(' · ').slice(0, 2).join(' · ');
+}
+
+/** La tarea de la que cuelga una ejecución: «Recolección de pve1» o el resumen del lote. */
+export function parentLabel(parent: JobRunParent): string {
+  if (parent.name === 'assets.bulk')
+    return bulkSummary(parent.message) ?? JOB_LABELS['assets.bulk'];
+  const label = JOB_LABELS[parent.name] ?? parent.name;
+  return parent.assetName ? `${label} de ${parent.assetName}` : label;
+}
 
 /** «850 ms», «12 s», «3 min 05 s», «1 h 02 min»; «—» sin duración. */
 export function formatDuration(ms: number | null | undefined): string {

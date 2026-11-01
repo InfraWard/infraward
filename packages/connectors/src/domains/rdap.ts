@@ -5,7 +5,7 @@ import { DomainApiError } from './domain-provider.js';
 export const IANA_RDAP_BOOTSTRAP = 'https://data.iana.org/rdap/dns.json';
 
 /** Cuánto vale el bootstrap en memoria. */
-const BOOTSTRAP_TTL_MS = 24 * 3600_000;
+const BOOTSTRAP_TTL_MS = 24 * 3_600_000;
 
 /**
  * GET de un JSON público (sin credenciales). Lo da el worker con su timeout; un estado no 2xx

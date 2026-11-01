@@ -49,6 +49,11 @@ import {
 } from './finding-where.js';
 import { SbomsService } from './sboms.service.js';
 import type { FindingListQueryDto } from './findings.dto.js';
+import {
+  ACCEPTANCE_JSON,
+  acceptanceOf,
+  type AcceptanceRow,
+} from './finding-acceptance.service.js';
 
 const DEFAULT_LIMIT = 50;
 
@@ -178,7 +183,7 @@ export class FindingsService {
         );
       return [imageId];
     }
-    if (asset.roles.includes('docker-host')) {
+    if (asset.roles.includes('docker-host') || asset.roles.includes('podman-host')) {
       const rows: { image_id: string }[] = await this.db.query(
         `SELECT DISTINCT a.facts->'docker'->>'imageId' AS image_id
            FROM assets a
@@ -194,7 +199,7 @@ export class FindingsService {
     }
     if (!host)
       throw new ConflictException(
-        'Solo se escanean servidores con conexión, CT, contenedores, imágenes y hosts Docker',
+        'Solo se escanean servidores con conexión, CT, contenedores, imágenes y hosts Docker o Podman',
       );
     return [];
   }
@@ -225,10 +230,12 @@ export class FindingsService {
   ): Promise<AssetVulnerabilitiesPage> {
     const { ownerId, image, sbom } = await this.findingsOwner(assetId);
     if (!ownerId) return { items: [], total: 0, image, sbom };
-    // La de un asset incluye siempre los de escaneo desactivado (la ficha lo avisa).
-    // Con el ruido (marcado): la ficha enseña todo lo del asset.
+    // La de un asset incluye siempre los de escaneo desactivado (la ficha lo avisa). El ruido
+    // (marcado) sale salvo con `includeNoise=false`, que es lo que pide la ficha por defecto: los
+    // kernels antiguos que guarda dnf llenaban la pestaña de CVE ya corregidos en el que corre.
+    const withNoise = query.includeNoise !== false;
     const { where, params } = findingWhere(
-      { ...query, includeScanDisabled: true, includeNoise: true },
+      { ...query, includeScanDisabled: true, includeNoise: withNoise },
       { where: ['f.asset_id = $1'], params: [ownerId] },
     );
     const page = pageParams(params, query);
@@ -242,7 +249,8 @@ export class FindingsService {
                 'pkgPath', f.pkg_path,
                 'status', f.status,
                 'priority', f.priority,
-                'noiseReason', f.noise_reason
+                'noiseReason', f.noise_reason,
+                'acceptance', ${ACCEPTANCE_JSON}
               ) ORDER BY ${GROUP_FIRST}, f.package_name, f.pkg_path NULLS FIRST,
                          f.id) AS packages,
               count(*) OVER ()::int AS total
@@ -258,6 +266,7 @@ export class FindingsService {
       items: rows.map((r) => ({ ...toGroup(r), packages: r.packages })),
       total:
         rows[0]?.total ?? (await this.countGroups('findings f', where, params)),
+      hidden: withNoise ? null : await this.assetNoise(ownerId, query),
       image,
       sbom,
       exposure: await this.exposureOf([assetId, ownerId]),
@@ -346,6 +355,31 @@ export class FindingsService {
       })),
       total: rows[0]?.total ?? (await this.countGroups(from, where, params)),
     };
+  }
+
+  /**
+   * Findings de un asset que la pestaña deja fuera por ruido, por motivo: los que cumplen el resto
+   * del filtro salvo la prioridad (como `hidden` de la lista global, «Fuera de esta vista»).
+   */
+  private async assetNoise(
+    ownerId: string,
+    query: FindingListQueryDto,
+  ): Promise<Partial<Record<NoiseReason, number>>> {
+    const { where, params } = findingWhere(
+      {
+        ...query,
+        includeScanDisabled: true,
+        includeNoise: true,
+        minPriority: undefined,
+      },
+      { where: ['f.asset_id = $1', 'f.noise_reason IS NOT NULL'], params: [ownerId] },
+    );
+    const rows: { reason: NoiseReason; n: number }[] = await this.db.query(
+      `SELECT f.noise_reason AS reason, count(*)::int AS n
+         FROM findings f WHERE ${where.join(' AND ')} GROUP BY 1`,
+      params,
+    );
+    return Object.fromEntries(rows.map((r) => [r.reason, r.n]));
   }
 
   /**
@@ -592,7 +626,7 @@ function dockerOf(asset: Asset): DockerContainerFacts | undefined {
     : undefined;
 }
 
-interface FindingRow {
+interface FindingRow extends AcceptanceRow {
   id: string;
   asset_id: string;
   vulnerability_id: string;
@@ -634,6 +668,7 @@ function toFinding(f: FindingRow): FindingContract {
     cvss: f.cvss_score,
     priority: priorityInfo(f.priority, f.priority_reasons),
     noiseReason: f.noise_reason,
+    acceptance: acceptanceOf(f),
   };
 }
 

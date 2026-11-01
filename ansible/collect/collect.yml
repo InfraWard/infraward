@@ -23,6 +23,7 @@
     infraward_nginx_filter: 'exit 3'
     infraward_process_filter: 'exit 3'
     infraward_sshd_filter: 'exit 3'
+    infraward_podman_users_filter: 'exit 3'
     infraward_query_prefix: [sudo, -n, /usr/local/libexec/infraward/infraward-query]
   tasks:
     - name: Facts del sistema (sin root)
@@ -59,7 +60,7 @@
     - name: Binarios presentes
       ansible.builtin.shell: |
         PATH=$PATH:/usr/local/sbin:/usr/sbin:/sbin
-        for c in pveversion plesk docker ss netstat dmidecode nginx sh; do
+        for c in pveversion plesk docker podman ss netstat dmidecode nginx sh; do
           p=$(command -v "$c" 2>/dev/null) && printf '%s=%s\n' "$c" "$p"
         done
         exit 0
@@ -74,6 +75,12 @@
         - { key: pveversion, bin: pveversion, query: pveversion, argv: [pveversion] }
         - { key: plesk, bin: plesk, query: plesk-version, argv: [plesk, version] }
         - { key: docker, bin: docker, query: docker-version, argv: [docker, info, --format, "{% raw %}{{.ServerVersion}}{% endraw %}"] }
+        # v8: Podman como root (sin demonio: basta el CLI; con o sin podman-docker) y los usuarios
+        # de Podman rootless (el script lo pasa el worker en `infraward_podman_users_filter`; solo
+        # salen uids, nombres y cuántos contenedores rootless tiene cada uno, para avisar de los
+        # que no se inventarían).
+        - { key: podman, bin: podman, query: podman-version, argv: [podman, info, --format, "{% raw %}{{.Version.Version}}{% endraw %}"] }
+        - { key: podman_users, bin: podman, query: podman-users, argv: [sh, -c, "{{ infraward_podman_users_filter }}", sh] }
         - { key: ss, bin: ss, query: ss, argv: [ss, -Htulpn] }
         - { key: dmidecode, bin: dmidecode, query: dmidecode-system, argv: [dmidecode, -t, system] }
         # v5: rutas de nginx; el filtro (lo pasa el worker en `infraward_nginx_filter`) corre en el

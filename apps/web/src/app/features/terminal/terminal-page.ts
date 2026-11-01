@@ -1,6 +1,7 @@
 import {
   afterNextRender,
   Component,
+  computed,
   DestroyRef,
   effect,
   ElementRef,
@@ -13,7 +14,9 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { Title } from '@angular/platform-browser';
 import { RouterLink } from '@angular/router';
 import {
+  parseTerminalAction,
   terminalSocketUrl,
+  type TerminalAction,
   type TerminalCloseReason,
   type TerminalServerMessage,
 } from '@infraward/shared-types';
@@ -52,7 +55,9 @@ export const LEAVE_QUESTION = 'La terminal sigue abierta. ¿Salir y cerrarla?';
 
 type State =
   | { kind: 'connecting' }
-  | { kind: 'open'; account: string }
+  /** Acción de la URL a la espera de que la persona la confirme (nada se ha pedido aún). */
+  | { kind: 'confirm' }
+  | { kind: 'open'; account: string; readOnly: boolean }
   | { kind: 'closed'; message: string; error: boolean };
 
 /** Rebote del ajuste de tamaño al redimensionar la ventana. */
@@ -73,6 +78,22 @@ const RESIZE_DEBOUNCE_MS = 120;
 export class TerminalPage {
   /** Del parámetro `:id` de la ruta. */
   readonly id = input.required<string>();
+  /**
+   * Acción de solo lectura (query `?action=podman-enable&users=a,b`, desde «Habilitar» en
+   * «Usuarios de Podman»): la sesión ejecuta ese comando fijo y no admite entrada. Nunca se
+   * ejecuta al cargar: un enlace no basta, la persona tiene que pulsar «Ejecutar».
+   */
+  readonly action = input<string | undefined>(undefined);
+  readonly users = input<string | undefined>(undefined);
+
+  /** La acción pedida, validada (null = shell interactiva). */
+  readonly terminalAction = computed<TerminalAction | null>(() => {
+    const kind = this.action();
+    if (!kind) return null;
+    return parseTerminalAction({ kind, users: (this.users() ?? '').split(',') });
+  });
+  /** Hay acción en la URL, pero no es válida: no se abre nada. */
+  private readonly badAction = computed(() => !!this.action() && !this.terminalAction());
 
   private readonly terminalApi = inject(TerminalApi);
   private readonly inventory = inject(InventoryApi);
@@ -94,7 +115,9 @@ export class TerminalPage {
   private readonly dark = globalThis.matchMedia?.('(prefers-color-scheme: dark)');
   private readonly onScheme = () => this.view?.setTheme(this.theme());
   private readonly beforeUnload = (event: BeforeUnloadEvent) => {
-    if (this.isOpen()) event.preventDefault();
+    // Como canLeave: sin socket no hay nada que cerrar (p. ej. al salir al proveedor OIDC para
+    // confirmar la identidad, con el ticket aún pendiente).
+    if (this.isOpen() && this.socket) event.preventDefault();
   };
 
   constructor() {
@@ -145,6 +168,7 @@ export class TerminalPage {
   }
 
   async paste(): Promise<void> {
+    if (this.readOnly()) return;
     try {
       const text = await navigator.clipboard.readText();
       if (text) this.view?.paste(text);
@@ -161,8 +185,39 @@ export class TerminalPage {
   /** Ticket nuevo: vuelve a comprobar permiso y reautenticación. */
   reconnect(): void {
     this.disconnect();
-    this.view?.write('\r\n\x1b[2m── Reconectando… ──\x1b[0m\r\n');
+    // Si xterm no llegó a cargarse, se reintenta antes: sin él no hay dónde pintar la sesión.
+    if (!this.view) {
+      void this.loadAndConnect();
+      return;
+    }
+    // Con una acción, volver a ejecutarla también pide confirmación.
+    if (this.terminalAction()) {
+      this.awaitConfirmation();
+      return;
+    }
+    this.view.write('\r\n\x1b[2m── Reconectando… ──\x1b[0m\r\n');
     void this.connect();
+  }
+
+  /** «Ejecutar»: la persona confirma la acción de la URL. */
+  run(): void {
+    if (this.state().kind !== 'confirm') return;
+    this.view?.write('\r\n\x1b[2m── Ejecutando… ──\x1b[0m\r\n');
+    void this.connect();
+  }
+
+  /** Lo que hará la acción, para confirmarla («habilitar Podman rootless para alice, bob»). */
+  actionLabel(): string {
+    const action = this.terminalAction();
+    return action ? `habilitar Podman rootless para ${action.users.join(', ')}` : '';
+  }
+
+  /** Acción válida en la URL: se queda a la espera de «Ejecutar» sin pedir ticket. */
+  private awaitConfirmation(): void {
+    this.state.set({ kind: 'confirm' });
+    this.view?.write(
+      `\r\n\x1b[2m── Sin ejecutar: confirma arriba para ${this.actionLabel()} ──\x1b[0m\r\n`,
+    );
   }
 
   private async start(): Promise<void> {
@@ -173,26 +228,36 @@ export class TerminalPage {
         this.title.setTitle(`Terminal · ${name}`);
       })
       .catch(() => this.title.setTitle('Terminal · InfraWard'));
+    await this.loadAndConnect();
+  }
+
+  /** Carga xterm en el contenedor y pide el ticket; si xterm no carga, lo dice y se queda ahí. */
+  private async loadAndConnect(): Promise<void> {
     const container = this.host().nativeElement;
+    let view: TerminalView;
     try {
-      this.view = await this.engine(container, this.theme());
-    } catch {
+      view = await this.engine(container, this.theme());
+    } catch (error) {
+      console.error('No se pudo cargar la terminal', error);
       this.state.set({ kind: 'closed', message: 'No se pudo cargar la terminal', error: true });
       return;
     }
-    this.view.onData((data) => this.sendInput(data));
-    this.view.onKey((event) => this.shortcut(event));
-    this.size = this.view.fit();
-    this.observer = new ResizeObserver(() => this.scheduleFit());
+    this.view = view;
+    view.onData((data) => this.sendInput(data));
+    view.onKey((event) => this.shortcut(event));
+    this.size = view.fit();
+    this.observer ??= new ResizeObserver(() => this.scheduleFit());
     this.observer.observe(container);
-    await this.connect();
+    if (this.terminalAction()) this.awaitConfirmation();
+    else await this.connect();
   }
 
   private async connect(): Promise<void> {
     this.state.set({ kind: 'connecting' });
     let ticket;
     try {
-      ticket = await firstValueFrom(this.terminalApi.open(this.id()));
+      if (this.badAction()) throw new Error('Acción no válida');
+      ticket = await firstValueFrom(this.terminalApi.open(this.id(), this.terminalAction()));
     } catch (error) {
       this.closed(this.openError(error), true);
       return;
@@ -221,7 +286,15 @@ export class TerminalPage {
   private control(message: TerminalServerMessage): void {
     switch (message.type) {
       case 'ready':
-        this.state.set({ kind: 'open', account: message.account });
+        this.state.set({
+          kind: 'open',
+          account: message.account,
+          readOnly: !!message.readOnly || !!this.terminalAction(),
+        });
+        if (this.terminalAction())
+          this.view?.write(
+            `\x1b[2m── Solo lectura: habilitar Podman rootless para ${this.terminalAction()!.users.join(', ')} (sudo sh -c <script de InfraWard>) ──\x1b[0m\r\n`,
+          );
         return;
       case 'notice':
         // El gateway ya lo escribe en la terminal; aquí también por si la pestaña no se mira.
@@ -249,7 +322,13 @@ export class TerminalPage {
     if (this.isOpen()) this.closed('Te has desconectado', false);
   }
 
+  /** ¿Terminal de solo lectura? (se ve la salida, no se escribe). */
+  readOnly(): boolean {
+    return !!this.terminalAction();
+  }
+
   private sendInput(data: string): void {
+    if (this.readOnly()) return;
     if (this.socket?.readyState === 1 && this.state().kind === 'open')
       this.socket.send(this.encoder.encode(data));
   }
@@ -294,6 +373,8 @@ export class TerminalPage {
         return 'Hace falta confirmar tu identidad para abrir la terminal';
       return 'No tienes permiso para abrir una terminal en este asset';
     }
+    if (error instanceof Error && error.message === 'Acción no válida')
+      return 'El enlace de la terminal no es válido';
     return apiErrorMessage(error, 'No se pudo abrir la terminal');
   }
 }

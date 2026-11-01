@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Inject,
@@ -16,7 +17,11 @@ import {
   TERMINAL_ASSET_TYPES,
   TERMINAL_PRINCIPAL,
   TERMINAL_TICKET_TTL_SECONDS,
+  parseTerminalAction,
+  podmanUserNeedsEnable,
   type AssetTerminalStatus,
+  type PodmanRootlessUser,
+  type TerminalAction,
   type CreateTerminalSessionResponse,
   type GatewayHeartbeatRequest,
   type GatewayHeartbeatResponse,
@@ -47,7 +52,7 @@ const MAX_CERTIFICATES = 3;
 const CERTIFICATE_WINDOW_MS = 60_000;
 /** Email que cabe tal cual en el key_id (si no, el id del usuario). */
 const KEY_ID_EMAIL = /^[A-Za-z0-9._+-]{1,64}@[A-Za-z0-9.-]{1,100}$/;
-const VMID = /^[1-9][0-9]{2,8}$/;
+const VMID = /^[1-9]\d{2,8}$/;
 const CONTAINER_ID = /^[0-9a-f]{64}$/;
 
 /** Estados de una sesión con el gateway ya dentro (latido, barrido y cortes). */
@@ -125,6 +130,7 @@ export class TerminalService {
     session: RequestSession | undefined,
     assetId: string,
     actor: AuditActor,
+    rawAction: TerminalAction | null = null,
   ): Promise<CreateTerminalSessionResponse> {
     const gateway = this.config.get('GATEWAY_PUBLIC_URL', { infer: true });
     if (!this.signer || !gateway)
@@ -136,8 +142,10 @@ export class TerminalService {
     if (!session) throw new ForbiddenException('La terminal solo se abre desde la sesión web');
     await this.expireTickets();
     let target: TerminalTarget;
+    let action: TerminalAction | null;
     try {
       target = await this.target(this.db.manager, assetId);
+      action = rawAction ? this.checkAction(target.asset, rawAction) : null;
     } catch (error) {
       if (error instanceof ConflictException)
         await this.audit.tryRecord(actor, 'terminal.session_rejected', {
@@ -162,11 +170,17 @@ export class TerminalService {
           ticketHash: hashTicket(ticket),
           ticketExpiresAt: expiresAt,
           requestIp: actor.ip && isIP(actor.ip) ? actor.ip : null,
+          action,
         }),
       );
       await this.audit.record(actor, 'terminal.session_requested', {
         target: { type: target.asset.type, id: target.asset.id, label: target.asset.name },
-        details: { sessionId: saved.id, host: target.host.name, account: ADMIN_ACCESS_USER },
+        details: {
+          sessionId: saved.id,
+          host: target.host.name,
+          account: ADMIN_ACCESS_USER,
+          ...(action ? { action: action.kind, actionUsers: action.users } : {}),
+        },
         manager: m,
       });
       return saved;
@@ -224,7 +238,29 @@ export class TerminalService {
       assetId: row.assetId,
       assetName: row.assetName,
       account: row.account,
+      action: row.action ?? null,
     };
+  }
+
+  /**
+   * Acción de solo lectura válida para este asset. `podman-enable`: un servidor o CT y solo usuarios que la última recolección detectó en él (nunca nombres libres).
+   */
+  private checkAction(asset: Asset, raw: TerminalAction): TerminalAction {
+    const action = parseTerminalAction(raw);
+    if (!action) throw new BadRequestException('Acción no válida');
+    if (asset.type !== 'server' && asset.type !== 'lxc')
+      throw new ConflictException('Esta acción solo se ejecuta en servidores y CT');
+    const detected = (
+      (asset.facts as { detected?: { podmanUsers?: PodmanRootlessUser[] } } | null)?.detected
+        ?.podmanUsers ?? []
+    ).filter(podmanUserNeedsEnable);
+    const names = new Set(detected.map((u) => u.name));
+    const unknown = action.users.filter((u) => !names.has(u));
+    if (unknown.length)
+      throw new ConflictException(
+        `No hay que habilitar a ${unknown.join(', ')}: no está entre los usuarios de Podman detectados sin habilitar (vuelve a recolectar)`,
+      );
+    return action;
   }
 
   /**
@@ -492,6 +528,11 @@ export class TerminalService {
     if (asset.status !== 'active') throw new ConflictException('El asset no está activo');
     if (asset.type === 'container' && !CONTAINER_ID.test(dockerId(asset) ?? ''))
       throw new ConflictException('El contenedor no tiene su id de Docker');
+    // Podman rootless: haría falta entrar como su usuario (por su socket); no se hace.
+    if (asset.type === 'container' && rootlessUser(asset))
+      throw new ConflictException(
+        'La terminal no entra en contenedores de Podman rootless (solo en los de root)',
+      );
     if (asset.type === 'lxc' && !VMID.test(String(proxmoxVmid(asset) ?? '')))
       throw new ConflictException('El CT no tiene su vmid de Proxmox');
     let host: Asset | null = asset.connection ? asset : null;
@@ -587,6 +628,11 @@ function sameHash(hex: string | null | undefined, expected: Buffer): boolean {
 
 function proxmoxVmid(asset: Asset): unknown {
   return (asset.facts.proxmox as { vmid?: unknown } | undefined)?.vmid;
+}
+
+function rootlessUser(asset: Asset): boolean {
+  const docker = asset.facts.docker as { rootlessUser?: unknown } | undefined;
+  return docker?.rootlessUser !== undefined;
 }
 
 function dockerId(asset: Asset): string | undefined {

@@ -2,28 +2,27 @@ import {
   DOMAIN_PROVIDERS,
   portExposure,
   type PortExposure,
-} from '@infraward/shared-types';
-import type {
-  SshdAuthFacts,
-  AssetFacts,
-  CollectedFacts,
-  CollectedPackage,
-  CollectedPort,
-  CollectedService,
-  CertificateFacts,
-  CollectionMeta,
-  ConnectorFacts,
-  DnsRecordFacts,
-  DnsTlsFacts,
-  RegistrationFacts,
-  ZoneFacts,
-  DockerContainerFacts,
-  DockerContainerNetwork,
-  DockerMount,
-  DockerNetworkFacts,
-  DockerVolumeFacts,
-  MachineIdClone,
-  ProxmoxGuestFacts,
+  byCodeUnit,
+  type SshdAuthFacts,
+  type AssetFacts,
+  type CollectedFacts,
+  type CollectedPackage,
+  type CollectedPort,
+  type CollectedService,
+  type CertificateFacts,
+  type CollectionMeta,
+  type ConnectorFacts,
+  type DnsRecordFacts,
+  type DnsTlsFacts,
+  type RegistrationFacts,
+  type ZoneFacts,
+  type DockerContainerFacts,
+  type DockerContainerNetwork,
+  type DockerMount,
+  type DockerNetworkFacts,
+  type DockerVolumeFacts,
+  type MachineIdClone,
+  type ProxmoxGuestFacts,
 } from '@infraward/shared-types';
 
 export interface SummaryItem {
@@ -129,15 +128,21 @@ export function networkItems(facts: AssetFacts): SummaryItem[] {
   return items.list;
 }
 
-/** Contenedor: imagen, estado, puertos y compose. */
+/** Contenedor: imagen, estado, puertos y compose (y, en Podman, pod, unidad y usuario rootless). */
 export function containerItems(facts: AssetFacts): SummaryItem[] {
   const d = (facts as Facts).docker;
   const items = new Items();
   if (!isPresent(d)) return items.list;
+  const podman = d.engine === 'podman';
   items.add('Imagen', d.image);
-  items.add('Estado en Docker', d.state);
+  items.add(podman ? 'Estado en Podman' : 'Estado en Docker', d.state);
   items.add('Puertos', Array.isArray(d.ports) ? dockerPorts(d.ports) : null);
   items.add('Compose', d.composeProject);
+  if (podman) {
+    items.add('Pod', d.pod);
+    items.add('Unidad de systemd', d.systemdUnit);
+    items.add('Usuario (rootless)', d.rootlessUser);
+  }
   items.add('Plataforma', d.platform);
   items.add('Arrancado', formatDate(d.startedAt));
   return items.list;
@@ -174,6 +179,7 @@ export function volumeItems(facts: AssetFacts): SummaryItem[] {
   items.add('Driver', v.driver);
   items.add('Ámbito', v.scope);
   items.add('Punto de montaje', v.mountpoint);
+  items.add('Usuario (rootless)', v.rootlessUser);
   items.add('Creado', formatDate(v.createdAt));
   return items.list;
 }
@@ -186,6 +192,7 @@ export function dockerNetworkItems(facts: AssetFacts): SummaryItem[] {
   items.add('Driver', n.driver);
   items.add('Ámbito', n.scope);
   items.add('Interna', n.internal ? 'sí (sin salida al exterior)' : null);
+  items.add('Usuario (rootless)', n.rootlessUser);
   items.add(
     'Subredes',
     arrayOf<{ subnet?: string; gateway?: string | null }>(n.subnets)
@@ -425,7 +432,8 @@ export function runningServices(
         typeof p === 'string' ? p === n : p.test(n),
       ),
   );
-  return { relevant: relevant.sort(), hidden: names.size - relevant.length };
+  relevant.sort(byCodeUnit);
+  return { relevant, hidden: names.size - relevant.length };
 }
 
 export type { PortExposure };

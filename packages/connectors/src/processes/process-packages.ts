@@ -20,7 +20,7 @@ export const PROCESS_LIB_PACKAGES_MAX = 100;
  * El ayudante (`ansible/enroll/enroll.sh.tmpl`) y el playbook lo llevan tal cual (un test lo
  * compara). Sin comillas simples dentro de los awk ni `{{`, `{%`, `{#` o `${`.
  */
-export const PROCESS_PACKAGES_SCRIPT = `P=$1
+export const PROCESS_PACKAGES_SCRIPT = String.raw`P=$1
 [ -n "$P" ] || P=/proc
 G=$2
 [ -n "$G" ] || G=/sys/fs/cgroup
@@ -39,18 +39,18 @@ procs=$(for pid in $pids; do
   exe=$(readlink "$P/$pid/exe" 2>/dev/null) || continue
   [ -n "$exe" ] || continue
   comm=$(head -n 1 "$P/$pid/comm" 2>/dev/null)
-  unit=$(printf '%s\\n' "$cg" | sed -n 's#^.*/\\([^/]*\\.service\\)$#\\1#p' | head -n 1)
-  printf 'X\\t%s\\t%s\\t%s\\t%s\\n' "$pid" "$comm" "$unit" "$exe"
-  awk -v p="$pid" '$6 ~ /\\.so/ { print "L\\t" p "\\t" $6 }' "$P/$pid/maps" 2>/dev/null | sort -u | head -n 400
+  unit=$(printf '%s\n' "$cg" | sed -n 's#^.*/\([^/]*\.service\)$#\1#p' | head -n 1)
+  printf 'X\t%s\t%s\t%s\t%s\n' "$pid" "$comm" "$unit" "$exe"
+  awk -v p="$pid" '$6 ~ /\.so/ { print "L\t" p "\t" $6 }' "$P/$pid/maps" 2>/dev/null | sort -u | head -n 400
 done)
-paths=$(printf '%s\\n' "$procs" | awk -F '\\t' '
+paths=$(printf '%s\n' "$procs" | awk -F '\t' '
   $1 == "X" || $1 == "L" {
     p = ($1 == "X") ? $5 : $3
-    sub(/ \\(deleted\\)$/, "", p)
-    if (p !~ /^\\/[^ ]*$/) next
+    sub(/ \(deleted\)$/, "", p)
+    if (p !~ /^\/[^ ]*$/) next
     print p
-    if (p ~ /^\\/usr\\/(lib|lib32|lib64|libx32|bin|sbin)\\//) print substr(p, 5)
-    else if (p ~ /^\\/(lib|lib32|lib64|libx32|bin|sbin)\\//) print "/usr" p
+    if (p ~ /^\/usr\/(lib|lib32|lib64|libx32|bin|sbin)\//) print substr(p, 5)
+    else if (p ~ /^\/(lib|lib32|lib64|libx32|bin|sbin)\//) print "/usr" p
   }' | sort -u | head -n 8000)
 owners=""
 if [ -n "$paths" ]; then
@@ -59,21 +59,21 @@ if [ -n "$paths" ]; then
       index($0, "diversion by ") == 1 { next }
       { i = index($0, ": /"); if (!i) next
         k = substr($0, 1, i - 1); sub(/,.*/, "", k); sub(/:.*/, "", k)
-        print "O\\t" substr($0, i + 2) "\\t" k }')
+        print "O\t" substr($0, i + 2) "\t" k }')
   elif command -v rpm >/dev/null 2>&1; then
-    real=$(for p in $paths; do [ -e "$p" ] && printf '%s\\n' "$p"; done)
+    real=$(for p in $paths; do [ -e "$p" ] && printf '%s\n' "$p"; done)
     if [ -n "$real" ]; then
-      owners=$( { printf '%s\\n' "$real"; echo '#'; rpm -qf --qf '%{NAME}\\n' $real 2>/dev/null; } | awk '
+      owners=$( { printf '%s\n' "$real"; echo '#'; rpm -qf --qf '%{NAME}\n' $real 2>/dev/null; } | awk '
         !s && $0 == "#" { s = 1; next }
         !s { R[++n] = $0; next }
-        { m++; if ($0 !~ / /) print "O\\t" R[m] "\\t" $0 }')
+        { m++; if ($0 !~ / /) print "O\t" R[m] "\t" $0 }')
     fi
   fi
 fi
-{ printf '%s\\n' "$owners"; printf '%s\\n' "$procs"; } | awk -F '\\t' '
+{ printf '%s\n' "$owners"; printf '%s\n' "$procs"; } | awk -F '\t' '
 function canon(p) {
-  sub(/ \\(deleted\\)$/, "", p)
-  if (p ~ /^\\/usr\\/(lib|lib32|lib64|libx32|bin|sbin)\\//) p = substr(p, 5)
+  sub(/ \(deleted\)$/, "", p)
+  if (p ~ /^\/usr\/(lib|lib32|lib64|libx32|bin|sbin)\//) p = substr(p, 5)
   return p
 }
 function safe(t) { return (t ~ /^[A-Za-z0-9][A-Za-z0-9._+:@-]*$/) ? substr(t, 1, 128) : "" }
@@ -93,7 +93,7 @@ END {
     e = canon(EXE[i]); ep = (e in OWN) ? safe(OWN[e]) : ""
     out = ""; cnt = split(LIBS[i], parts, ",")
     for (j = 1; j <= cnt; j++) if (parts[j] != "" && parts[j] != ep) out = out (out == "" ? "" : ",") parts[j]
-    print "P\\t" PID[i] "\\t" safe(NAME[i]) "\\t" safe(UNIT[i]) "\\t" ep "\\t" out
+    print "P\t" PID[i] "\t" safe(NAME[i]) "\t" safe(UNIT[i]) "\t" ep "\t" out
   }
 }'
 `;

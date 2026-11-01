@@ -1,7 +1,11 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { IMAGE_ID, isSudoDenial } from '@infraward/connectors';
+import {
+  IMAGE_ID,
+  isSudoDenial,
+  type PrivilegedQuery,
+} from '@infraward/connectors';
 import { Asset, ContainerImage, policyValues } from '@infraward/domain';
 import { SecretError, SecretsService } from '@infraward/secrets';
 import {
@@ -24,6 +28,7 @@ import { join } from 'node:path';
 import { DataSource } from 'typeorm';
 import { CollectionError } from '../collect/ansible-runner.js';
 import type { EnvironmentVariables } from '../config/env.validation.js';
+import { ImageArchiveError, verifyImageArchive } from '../scan/image-archive.js';
 import { HostScanner } from '../scan/host-scanner.js';
 import { parseCycloneDx } from '../scan/sbom.js';
 import { SbomReevaluator } from '../scan/sbom-reevaluator.js';
@@ -64,10 +69,19 @@ export const KNOWN_SCAN_ERRORS = [
   SecretError,
 ];
 
-/** Host desde el que se saca la imagen con `docker save`. */
+/** Versión del sudoers que permite `podman save` (consulta `podman-save` del ayudante). */
+export const PODMAN_SAVE_SUDOERS_VERSION = SUDOERS_CAPABILITIES.podman.version;
+
+/** Host desde el que se saca la imagen con `docker save` o `podman save`. */
 interface ImageSource {
   host: Asset;
   route: AssetRoute & { pinned: string };
+  /**
+   * Consultas que la sacan, por orden: `docker-save` en un host Docker; en uno de Podman,
+   * `podman-save` como root y en el almacén de cada usuario rootless con contenedores en el host
+   * (antes los que usan esta imagen). Se prueba la siguiente si una falla (no la tiene).
+   */
+  saves: PrivilegedQuery[];
 }
 
 /**
@@ -274,7 +288,7 @@ export class ScanProcessor {
         );
       await reportProgress(job, 5, 'Preparando la base de datos de Trivy');
       const dbUpdatedAt = await this.trivy.ensureDb();
-      const source = await this.source(hostIds);
+      const source = await this.source(hostIds, imageId);
       // Prioridad baja frente al límite por host: tope propio para escaneos y rellenos.
       await this.slots?.acquire(
         source.route.host.id,
@@ -288,7 +302,7 @@ export class ScanProcessor {
       await reportProgress(
         job,
         15,
-        `Descargando la imagen de ${source.host.name} con docker save`,
+        `Descargando la imagen de ${source.host.name} con ${saveCommand(source.saves[0])}`,
       );
       await this.save(source, imageId, tar, job.id);
 
@@ -381,11 +395,14 @@ export class ScanProcessor {
    * Elige un host desde el que hacer `docker save`: un CT (por `pct exec`, root sin sudoers) o un
    * servidor con el sudoers que lo permite (v2). Siempre con la huella fijada.
    */
-  private async source(hostIds: string[]): Promise<ImageSource> {
+  private async source(
+    hostIds: string[],
+    imageId: string,
+  ): Promise<ImageSource> {
     const reasons: string[] = [];
     for (const hostId of hostIds) {
       const host = await this.db.getRepository(Asset).findOneBy({ id: hostId });
-      if (!host || host.status !== 'active') continue;
+      if (host?.status !== 'active') continue;
       let route: AssetRoute;
       try {
         route = await this.routes.route(host);
@@ -401,29 +418,97 @@ export class ScanProcessor {
       const version = (
         host.facts.infraward as CollectedFacts['infraward'] | undefined
       )?.sudoersVersion;
-      if (
-        !sudoersAllows(
-          'docker.save',
+      const via = route.via ? 'pct' : 'ssh';
+      const candidates = await this.saveQueries(host, imageId);
+      const saves = candidates.filter((q) =>
+        sudoersAllows(
+          q.name === 'podman-save' ? 'podman' : 'docker.save',
           version ?? null,
-          route.via ? 'pct' : 'ssh',
-        )
-      ) {
+          via,
+        ),
+      );
+      if (saves.length === 0) {
+        const podman = candidates[0]?.name === 'podman-save';
         reasons.push(
-          `${host.name}: sudoers desactualizado (v${version ?? '?'} < v${DOCKER_SAVE_SUDOERS_VERSION}): vuelve a ejecutar el script de alta para permitir docker save`,
+          `${host.name}: sudoers desactualizado (v${version ?? '?'} < v${podman ? PODMAN_SAVE_SUDOERS_VERSION : DOCKER_SAVE_SUDOERS_VERSION}): vuelve a ejecutar el script de alta para permitir ${podman ? 'podman' : 'docker'} save`,
         );
         continue;
       }
-      return { host, route: { ...route, pinned: route.pinned } };
+      return { host, route: { ...route, pinned: route.pinned }, saves };
     }
     throw new SkipScan(
       reasons[0] ?? 'Ningún host activo con la imagen desde el que descargarla',
     );
   }
 
-  /** `docker save` del host directamente a disco, con los límites de tamaño y tiempo. */
+  /**
+   * Cómo sacar la imagen de un host (ver `ImageSource.saves`). Sin rol de Docker ni de Podman
+   * (puesto o quitado a mano), `docker save`, como siempre.
+   */
+  private async saveQueries(
+    host: Asset,
+    imageId: string,
+  ): Promise<PrivilegedQuery[]> {
+    const saves: PrivilegedQuery[] = [];
+    const podman = host.roles.includes('podman-host');
+    if (host.roles.includes('docker-host') || !podman)
+      saves.push({ name: 'docker-save', args: [imageId] });
+    if (!podman) return saves;
+    saves.push({ name: 'podman-save', args: ['root', imageId] });
+    const rows: { uid: number }[] = await this.db.query(
+      `SELECT (a.facts->'docker'->>'rootlessUid')::int AS uid
+         FROM assets a
+         JOIN asset_relations r ON r.child_id = a.id AND r.type = 'contains'
+        WHERE r.parent_id = $1 AND a.type = 'container' AND a.status = 'active'
+          AND a.facts->'docker'->>'engine' = 'podman'
+          AND a.facts->'docker'->>'rootlessUid' ~ '^[1-9][0-9]{0,9}$'
+        GROUP BY 1
+        ORDER BY bool_or(a.facts->'docker'->>'imageId' = $2) DESC, 1`,
+      [host.id, imageId],
+    );
+    for (const { uid } of rows)
+      saves.push({ name: 'podman-save', args: [String(uid), imageId] });
+    return saves;
+  }
+
+  /**
+   * `docker save` (o `podman save`) del host directamente a disco, con los límites de tamaño y
+   * tiempo. Con varias formas de sacarla (Podman: root y usuarios rootless), la primera que
+   * funcione; si ninguna, el error de la primera.
+   */
   private async save(
     source: ImageSource,
     imageId: string,
+    tar: string,
+    jobId: string | undefined,
+  ) {
+    let first: Error | undefined;
+    for (const query of source.saves) {
+      await rm(tar, { force: true });
+      try {
+        await this.saveWith(source, query, tar, jobId);
+        // Del almacén de un usuario rootless, el tar lo da un servicio suyo: config y capas tienen
+        // que ser los del image ID (Trivy solo comprueba el config).
+        if (isRootlessSave(query))
+          await verifyImageArchive(tar, imageId).catch((error: unknown) => {
+            if (!(error instanceof ImageArchiveError)) throw error;
+            throw new ScanError(`${saveCommand(query)}: ${error.message}; no se usa`);
+          });
+        return;
+      } catch (error) {
+        // Límites, sudo y fallos de conexión cortan (SkipScan y demás); un save que falla (no
+        // tiene la imagen) prueba el siguiente.
+        if (!(error instanceof ScanError)) throw error;
+        first ??= error;
+      }
+    }
+    throw first ?? new ScanError(`No se pudo sacar ${imageId} de ${source.host.name}`);
+  }
+
+  /** Una forma de sacar la imagen (`docker save` o `podman save` de un ámbito). */
+  private async saveWith(
+    source: ImageSource,
+    query: PrivilegedQuery,
     tar: string,
     jobId: string | undefined,
   ) {
@@ -440,7 +525,7 @@ export class ScanProcessor {
       hostKey,
       (node) =>
         (via ? throughPct(node, via.vmid) : node).streamToFile(
-          { name: 'docker-save', args: [imageId] },
+          query,
           tar,
           { maxBytes: this.maxBytes, timeoutMs: this.timeoutMs },
         ),
@@ -453,13 +538,14 @@ export class ScanProcessor {
     if (result.limit === 'time') throw this.timeout();
     if (result.code !== 0) {
       const stderr = result.stderr.trim();
+      const command = saveCommand(query);
       if (isSudoDenial(stderr, result.code))
         throw new SkipScan(
-          `sudo no permite docker save en ${source.host.name}: hace falta el sudoers v${DOCKER_SAVE_SUDOERS_VERSION} (vuelve a ejecutar el script de alta)`,
+          `sudo no permite ${command} en ${source.host.name}: hace falta el sudoers v${query.name === 'podman-save' ? PODMAN_SAVE_SUDOERS_VERSION : DOCKER_SAVE_SUDOERS_VERSION} (vuelve a ejecutar el script de alta)`,
         );
       const line = stderr.split('\n').at(-1)?.slice(0, 300);
       throw new ScanError(
-        `docker save falló (código ${result.code})${line ? `: ${line}` : ''}`,
+        `${command} falló (código ${result.code})${line ? `: ${line}` : ''}`,
       );
     }
   }
@@ -554,4 +640,16 @@ function gib(bytes: number): string {
   return bytes >= 1024 ** 3
     ? `${(bytes / 1024 ** 3).toFixed(2)} GiB`
     : `${Math.round(bytes / 1024 ** 2)} MiB`;
+}
+
+/** `podman save` del almacén de un usuario rootless (no de root). */
+function isRootlessSave(query: PrivilegedQuery): boolean {
+  return query.name === 'podman-save' && query.args?.[0] !== 'root';
+}
+
+/** `docker save`, `podman save` o `podman save` de un usuario rootless (para los mensajes). */
+function saveCommand(query: PrivilegedQuery | undefined): string {
+  if (query?.name !== 'podman-save') return 'docker save';
+  const scope = query.args?.[0];
+  return scope && scope !== 'root' ? `podman save (uid ${scope})` : 'podman save';
 }

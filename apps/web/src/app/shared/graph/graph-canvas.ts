@@ -134,7 +134,7 @@ export class GraphCanvas {
   private readonly host = viewChild.required<ElementRef<HTMLElement>>('canvas');
   private readonly engine = inject(GRAPH_ENGINE);
   private cy: Core | null = null;
-  private dark = globalThis.matchMedia?.('(prefers-color-scheme: dark)');
+  private readonly dark = globalThis.matchMedia?.('(prefers-color-scheme: dark)');
 
   constructor() {
     const destroyRef = inject(DestroyRef);

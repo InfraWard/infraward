@@ -24,7 +24,7 @@ const PEM_CERT =
 export function decodePleskPem(raw: string): string | null {
   if (raw.includes('-----BEGIN')) return raw;
   try {
-    return decodeURIComponent(raw.replace(/\+/g, ' '));
+    return decodeURIComponent(raw.replaceAll('+', ' '));
   } catch {
     return null;
   }

@@ -222,8 +222,14 @@ describe('coordinación entre réplicas (Redis real)', () => {
     it('un solo líder; al parar, otro toma el relevo', async () => {
       const events: string[] = [];
       const hooks = (name: string) => ({
-        elected: () => Promise.resolve(void events.push(`${name}+`)),
-        demoted: () => Promise.resolve(void events.push(`${name}-`)),
+        elected: () => {
+          events.push(`${name}+`);
+          return Promise.resolve();
+        },
+        demoted: () => {
+          events.push(`${name}-`);
+          return Promise.resolve();
+        },
       });
       const [a, b] = [
         new LeaderElection(await replica()),

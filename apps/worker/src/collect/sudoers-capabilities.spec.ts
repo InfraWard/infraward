@@ -25,8 +25,10 @@ describe('SUDOERS_CAPABILITIES', () => {
       processes: expect.objectContaining({ version: 6, roles: ['*'], onMissing: 'note' }),
       // v7 (QoL-7): autenticación efectiva de sshd; sin ella, otra nota.
       sshd: expect.objectContaining({ version: 7, roles: ['*'], onMissing: 'note' }),
+      // v8 (Podman): sin ella no se inventaría nada de Podman: desactualizado.
+      podman: expect.objectContaining({ version: 8, roles: ['podman-host'], onMissing: 'outdated' }),
     });
-    expect(SUDOERS_VERSION).toBe(7);
+    expect(SUDOERS_VERSION).toBe(8);
     // Ninguna capacidad pide una versión que el script todavía no instala.
     for (const c of Object.values(SUDOERS_CAPABILITIES))
       expect(c.version).toBeLessThanOrEqual(SUDOERS_VERSION);
@@ -38,6 +40,13 @@ describe('SUDOERS_CAPABILITIES', () => {
     expect(sudoersCapabilitiesFor(['docker-host'])).toEqual([
       'helper',
       'docker.save',
+      'proxies',
+      'processes',
+      'sshd',
+    ]);
+    expect(sudoersCapabilitiesFor(['podman-host'])).toEqual([
+      'helper',
+      'podman',
       'proxies',
       'processes',
       'sshd',
@@ -55,6 +64,15 @@ describe('SUDOERS_CAPABILITIES', () => {
     expect(requiredSudoersVersion([])).toBe(4);
     expect(requiredSudoersVersion(['proxmox-node'])).toBe(4);
     expect(requiredSudoersVersion(['docker-host', 'plesk'])).toBe(4);
+    expect(requiredSudoersVersion(['podman-host'])).toBe(8);
+  });
+
+  it('Podman (v8): desactualizado con la v7; con la v8, nada pendiente', () => {
+    expect(sudoersGaps(['podman-host'], 7).outdated).toEqual(['podman']);
+    expect(sudoersGaps(['podman-host', 'docker-host'], 8)).toEqual({ outdated: [], notes: [] });
+    expect(sudoersAllows('podman', 7)).toBe(false);
+    expect(sudoersAllows('podman', 8)).toBe(true);
+    expect(sudoersAllows('podman', 7, 'pct')).toBe(true);
   });
 
   it('sudoersAllows: por versión, y siempre por pct exec (root en el CT)', () => {

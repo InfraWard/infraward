@@ -226,7 +226,7 @@ h2 {
 
     h2::after {
       content: '\F282'; // bi-chevron-down
-      font-family: bootstrap-icons;
+      font-family: bootstrap-icons, sans-serif;
       margin-left: auto;
       font-size: 0.9rem;
       color: var(--p-text-muted-color);

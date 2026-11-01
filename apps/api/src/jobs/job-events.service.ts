@@ -9,9 +9,12 @@ import { QueueEvents } from 'bullmq';
 import { Observable, Subject } from 'rxjs';
 import type { EnvironmentVariables } from '../config/env.validation.js';
 
-/** Colas cuyos eventos interesan a la web (las del alta y lo que encadena): todas menos `system`. */
+/**
+ * Colas cuyos eventos interesan a la web (las del alta y lo que encadena): todas menos `system` y
+ * `alerts` (sus jobs no salen en la Actividad).
+ */
 const WATCHED_QUEUES: readonly QueueName[] = Object.values(QUEUE_NAMES).filter(
-  (q) => q !== QUEUE_NAMES.system,
+  (q) => q !== QUEUE_NAMES.system && q !== QUEUE_NAMES.alerts,
 );
 
 const WATCHED_EVENTS = ['active', 'progress', 'completed', 'failed'] as const;

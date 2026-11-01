@@ -122,6 +122,17 @@ services:
       # Al parar, espera a los jobs en curso como mucho esto; después vuelven a la cola. Menor
       # que stop_grace_period.
       WORKER_SHUTDOWN_GRACE: "90"
+      # Alertas fuera de la app (Ajustes › Alertas): enlaces a la web, webhooks http/privados y el
+      # SMTP de los canales de correo (la contraseña, como secret:// en el gestor de secretos).
+      ALERTS_PUBLIC_URL: ${INFRAWARD_PUBLIC_URL:-http://localhost:8080}
+      ALERTS_WEBHOOK_ALLOW_HTTP: ${ALERTS_WEBHOOK_ALLOW_HTTP:-false}
+      ALERTS_WEBHOOK_ALLOW_PRIVATE: ${ALERTS_WEBHOOK_ALLOW_PRIVATE:-false}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD_REF: ${SMTP_PASSWORD_REF:-}
+      SMTP_FROM: ${SMTP_FROM:-}
     secrets:
       - master_key
       - redis_password

@@ -70,7 +70,7 @@ export class TrivyRunner {
     this.cacheDir =
       config.get('TRIVY_CACHE_DIR', { infer: true }) ??
       join(homedir(), '.cache', 'infraward', 'trivy');
-    this.maxAgeMs = config.get('TRIVY_DB_MAX_AGE', { infer: true }) * 3600_000;
+    this.maxAgeMs = config.get('TRIVY_DB_MAX_AGE', { infer: true }) * 3_600_000;
     this.retentionMs =
       2 * (config.get('TRIVY_SCAN_TIMEOUT', { infer: true }) ?? 900) * 1000;
   }
@@ -118,7 +118,7 @@ export class TrivyRunner {
     target: { image: string } | { rootfs: string },
     workDir: string,
     timeoutMs: number,
-  ): Promise<string | 'timeout'> {
+  ): Promise<string> {
     const output = join(workDir, 'sbom.trivy.json');
     const args =
       'image' in target
@@ -247,7 +247,7 @@ export class TrivyRunner {
         await readFile(join(generation, kind, 'metadata.json'), 'utf8'),
       ) as { UpdatedAt?: string; DownloadedAt?: string };
       const date = (v?: string) =>
-        v && !isNaN(Date.parse(v)) ? new Date(v) : null;
+        v && !Number.isNaN(Date.parse(v)) ? new Date(v) : null;
       return {
         updatedAt: date(meta.UpdatedAt),
         downloadedAt: date(meta.DownloadedAt),
@@ -375,7 +375,6 @@ function lastLine(result: ProcessResult): string {
   const line = result.stderr
     .split('\n')
     .map((l) => l.trim())
-    .filter(Boolean)
-    .at(-1);
+    .findLast(Boolean);
   return ` (código ${result.code})${line ? `: ${line.slice(0, 300)}` : ''}`;
 }

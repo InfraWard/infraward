@@ -9,7 +9,12 @@ import { MessageService } from '@openng/optimus-ui/api';
 import { authInterceptor } from '../../core/auth/auth.interceptor';
 import { AuthService } from '../../core/auth/auth.service';
 import { storeSession } from '../../testing/session';
-import { TERMINAL_ENGINE, TERMINAL_SOCKET, type TerminalView } from './terminal-engine';
+import {
+  commonJsExport,
+  TERMINAL_ENGINE,
+  TERMINAL_SOCKET,
+  type TerminalView,
+} from './terminal-engine';
 import { LEAVE_QUESTION, TerminalPage } from './terminal-page';
 
 /** WebSocket falso: guarda lo enviado y deja simular lo que llega. */
@@ -61,14 +66,9 @@ function fakeView() {
 
 const TICKET = { sessionId: 's1', ticket: 'T'.repeat(43), gatewayUrl: '/gateway/terminal', expiresAt: '' };
 
-async function setup() {
+async function setup(query: { action?: string; users?: string } = {}, body: object = { assetId: 'ct1' }) {
   storeSession('editor');
   const fake = fakeView();
-  // jsdom no trae ResizeObserver: uno que no observa nada.
-  globalThis.ResizeObserver ??= class {
-    observe = () => undefined;
-    disconnect = () => undefined;
-  } as unknown as typeof ResizeObserver;
   TestBed.configureTestingModule({
     imports: [TerminalPage],
     providers: [
@@ -83,11 +83,25 @@ async function setup() {
   const http = TestBed.inject(HttpTestingController);
   const fixture = TestBed.createComponent(TerminalPage);
   fixture.componentRef.setInput('id', 'ct1');
+  if (query.action) fixture.componentRef.setInput('action', query.action);
+  if (query.users) fixture.componentRef.setInput('users', query.users);
   fixture.detectChanges();
   await fixture.whenStable();
   http.expectOne('/api/assets/ct1').flush({ id: 'ct1', name: 'pruebas', displayName: null });
+  if (query.action) {
+    // Una acción nunca se ejecuta al cargar (un enlace no basta): espera a «Ejecutar».
+    expect(http.match('/api/terminal/sessions')).toEqual([]);
+    fixture.detectChanges();
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('[data-terminal-state="confirm"]')).not.toBeNull();
+    expect(el.querySelector('[data-terminal-confirm]')?.textContent).toContain(
+      `habilitar Podman rootless para ${query.users?.split(',').join(', ')}`,
+    );
+    el.querySelector<HTMLButtonElement>('[data-terminal-action="run"] button')!.click();
+    await fixture.whenStable();
+  }
   const open = http.expectOne('/api/terminal/sessions');
-  expect(open.request.body).toEqual({ assetId: 'ct1' });
+  expect(open.request.body).toEqual(body);
   open.flush(TICKET);
   await fixture.whenStable();
   return { fixture, http, fake, el: fixture.nativeElement as HTMLElement };
@@ -115,6 +129,26 @@ describe('TerminalPage', () => {
     expect(new TextDecoder().decode(fake.written.at(-1) as Uint8Array)).toBe('root@pruebas:~# ');
     fake.type('ls\r');
     expect(new TextDecoder().decode(socket.sent.at(-1) as Uint8Array)).toBe('ls\r');
+  });
+
+  it('acción «Habilitar Podman»: pide el ticket con la acción, «Solo lectura», sin Pegar y sin enviar lo tecleado', async () => {
+    const action = { kind: 'podman-enable', users: ['alice', 'bob'] };
+    const { fixture, fake, el } = await setup(
+      { action: 'podman-enable', users: 'alice,bob' },
+      { assetId: 'ct1', action },
+    );
+    const socket = FakeSocket.last;
+    socket.open();
+    socket.receive(
+      JSON.stringify({ type: 'ready', sessionId: 's1', asset: 'pruebas', account: 'infraward-admin', readOnly: true }),
+    );
+    fixture.detectChanges();
+    expect(el.querySelector('[data-terminal-readonly]')).not.toBeNull();
+    expect(el.querySelector('[data-terminal-action="paste"]')).toBeNull();
+    expect(String(fake.written.at(-1))).toContain('Solo lectura: habilitar Podman rootless para alice, bob');
+    const sent = socket.sent.length;
+    fake.type('id\r');
+    expect(socket.sent.length).toBe(sent);
   });
 
   it('el motivo del cierre, dentro de la terminal y en la barra; reconectar pide otro ticket', async () => {
@@ -186,5 +220,98 @@ describe('TerminalPage', () => {
       (fixture.nativeElement as HTMLElement).querySelector('[data-terminal-state="closed"]')
         ?.textContent,
     ).toContain('No tienes permiso');
+  });
+  it('si xterm no carga lo dice, y reconectar lo vuelve a cargar antes de pedir el ticket', async () => {
+    storeSession('editor');
+    const fake = fakeView();
+    let attempts = 0;
+    const engine = async () => {
+      attempts++;
+      if (attempts === 1) throw new TypeError('t is not a constructor');
+      return fake.view;
+    };
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    TestBed.configureTestingModule({
+      imports: [TerminalPage],
+      providers: [
+        provideRouter([]),
+        provideHttpClient(withInterceptors([authInterceptor])),
+        provideHttpClientTesting(),
+        MessageService,
+        { provide: TERMINAL_ENGINE, useValue: engine },
+        { provide: TERMINAL_SOCKET, useValue: (url: string) => new FakeSocket(url) },
+      ],
+    });
+    const http = TestBed.inject(HttpTestingController);
+    const fixture = TestBed.createComponent(TerminalPage);
+    fixture.componentRef.setInput('id', 'ct1');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    http.expectOne('/api/assets/ct1').flush({ id: 'ct1', name: 'pruebas', displayName: null });
+    fixture.detectChanges();
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('[data-terminal-state="closed"]')?.textContent).toContain(
+      'No se pudo cargar la terminal',
+    );
+    // Sin xterm no se pide ticket.
+    http.expectNone('/api/terminal/sessions');
+    fixture.componentInstance.reconnect();
+    await fixture.whenStable();
+    expect(attempts).toBe(2);
+    http.expectOne('/api/terminal/sessions').flush(TICKET);
+    await fixture.whenStable();
+    FakeSocket.last.open();
+    expect(JSON.parse(FakeSocket.last.sent[0] as string)).toMatchObject({ type: 'auth', cols: 100 });
+  });
+
+  it('esperando el ticket (p. ej. al salir a confirmar la identidad en el proveedor) no frena la salida', async () => {
+    storeSession('editor');
+    const fake = fakeView();
+    TestBed.configureTestingModule({
+      imports: [TerminalPage],
+      providers: [
+        provideRouter([]),
+        provideHttpClient(withInterceptors([authInterceptor])),
+        provideHttpClientTesting(),
+        MessageService,
+        { provide: TERMINAL_ENGINE, useValue: async () => fake.view },
+        { provide: TERMINAL_SOCKET, useValue: (url: string) => new FakeSocket(url) },
+      ],
+    });
+    const fixture = TestBed.createComponent(TerminalPage);
+    fixture.componentRef.setInput('id', 'ct1');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    // El ticket sigue pendiente: estado «conectando», sin WebSocket.
+    expect(fixture.componentInstance.isOpen()).toBe(true);
+    const event = new Event('beforeunload', { cancelable: true });
+    dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
+    expect(fixture.componentInstance.canLeave()).toBe(true);
+  });
+
+  it('con la sesión abierta, cerrar la pestaña pide confirmación', async () => {
+    await setup();
+    FakeSocket.last.open();
+    const event = new Event('beforeunload', { cancelable: true });
+    dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+  });
+});
+
+describe('commonJsExport', () => {
+  class Terminal {}
+  it('la exportación con nombre si la hay (ng serve, tests)', () => {
+    expect(commonJsExport({ Terminal }, 'Terminal')).toBe(Terminal);
+  });
+
+  it('dentro de default si el chunk solo exporta default (build de producción)', () => {
+    const module = { default: { Terminal } } as unknown as { Terminal: typeof Terminal };
+    expect(commonJsExport(module, 'Terminal')).toBe(Terminal);
+  });
+
+  it('error claro si no está en ninguno', () => {
+    const module = { default: {} } as unknown as { Terminal: typeof Terminal };
+    expect(() => commonJsExport(module, 'Terminal')).toThrow('El módulo no exporta Terminal');
   });
 });

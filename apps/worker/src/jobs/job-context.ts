@@ -1,5 +1,6 @@
 import type { Job } from 'bullmq';
 import { AsyncLocalStorage } from 'node:async_hooks';
+import type { RunLog } from './run-log.js';
 
 /** Por qué se aborta un job en curso. */
 export type AbortReason = 'shutdown' | 'lock-lost';
@@ -26,6 +27,8 @@ export interface JobContext {
   /** Generación de la BD de Trivy que usa este job (la que abrió al empezar). */
   trivyCache?: string;
   leases: JobLease[];
+  /** Log de este intento (DESIGN §20, «Log de cada ejecución»); solo en jobs con fila. */
+  log?: RunLog;
 }
 
 const storage = new AsyncLocalStorage<JobContext>();

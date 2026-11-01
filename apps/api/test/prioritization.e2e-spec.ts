@@ -4,6 +4,7 @@ import {
   JOB_NAMES,
   QUEUE_NAMES,
   type Asset,
+  type AssetTreeSummaryNode,
   type AssetVulnerabilitiesPage,
   type EnqueueJobResponse,
   type EnrollServerResponse,
@@ -479,6 +480,35 @@ describe('Priorización de vulnerabilidades (e2e)', () => {
       '/vulnerabilities?status=open&hidden=low_priority&minPriority=medium',
     );
     expect(low.items.map((v) => v.vulnerabilityId)).toEqual(['CVE-2026-7006']);
+  });
+
+  it('kernels que no corren: fuera de los recuentos del resumen y, con includeNoise=false, de la ficha', async () => {
+    const tree = await get<AssetTreeSummaryNode[]>('/assets/tree', viewerToken);
+    const find = (nodes: AssetTreeSummaryNode[]): AssetTreeSummaryNode | undefined =>
+      nodes.map((n) => (n.id === node.id ? n : find(n.children))).find(Boolean);
+    // 7002 (otro kernel) y 7003 (linux-libc-dev) no cuentan: van aparte.
+    expect(find(tree)).toMatchObject({
+      openFindings: { CRITICAL: 1, HIGH: 2, MEDIUM: 1, LOW: 0 },
+      fixableFindings: { CRITICAL: 1, HIGH: 0 },
+      kernelNotRunningFindings: 2,
+    });
+
+    // La ficha, por defecto (sin el parámetro), como antes: con el ruido marcado.
+    const all = await get<AssetVulnerabilitiesPage>(
+      `/assets/${node.id}/vulnerabilities?status=open&limit=50`,
+    );
+    expect(all.total).toBe(6);
+    expect(all.hidden ?? null).toBeNull();
+    // La web pide sin el ruido y enseña lo que queda fuera.
+    const clean = await get<AssetVulnerabilitiesPage>(
+      `/assets/${node.id}/vulnerabilities?status=open&includeNoise=false&minPriority=medium&limit=50`,
+      viewerToken,
+    );
+    expect(clean.items.map((g) => g.vulnerabilityId)).toEqual([
+      'CVE-2026-7001',
+      'CVE-2026-7005',
+    ]);
+    expect(clean.hidden).toEqual({ kernel_not_running: 2, no_fix_planned: 1 });
   });
 
   it('filtros: KEV, EPSS, expuestas, prioridad en la búsqueda y orden por severidad', async () => {

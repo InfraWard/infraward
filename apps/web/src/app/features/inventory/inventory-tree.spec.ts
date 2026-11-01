@@ -170,7 +170,7 @@ describe('InventoryTree', () => {
     http.expectOne('/api/assets/tree?includeRetired=true').flush([]);
     // Los umbrales de caducidad se piden una vez y se comparten.
     http.match('/api/settings/expiry-warnings').forEach((r) => r.flush({ days: [30, 7] }));
-    http.verify();
+    expect(() => http.verify()).not.toThrow();
   });
 
   it('?q= con sintaxis: tag exacto y nombre parcial, con chips y el texto en el buscador', async () => {

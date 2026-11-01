@@ -7,10 +7,16 @@
         @case ('connecting') {
           <p-tag value="Conectando…" severity="secondary" icon="bi bi-hourglass-split" data-terminal-state="connecting" />
         }
+        @case ('confirm') {
+          <p-tag value="Sin ejecutar" severity="warn" icon="bi bi-pause-circle" data-terminal-state="confirm" />
+        }
         @case ('open') {
           @if (state(); as s) {
             @if (s.kind === 'open') {
               <p-tag [value]="'Conectada como ' + s.account" severity="success" icon="bi bi-plug" data-terminal-state="open" />
+              @if (s.readOnly) {
+                <p-tag value="Solo lectura" severity="info" icon="bi bi-eye" data-terminal-readonly pTooltip="Se ve el comando y su salida; no se puede escribir" tooltipPosition="bottom" />
+              }
             }
           }
         }
@@ -41,7 +47,8 @@
         data-terminal-action="copy"
         (onClick)="copy()"
       />
-      <p-button
+@if (!readOnly()) {
+            <p-button
         label="Pegar"
         icon="bi bi-clipboard-plus"
         size="small"
@@ -53,6 +60,7 @@
         data-terminal-action="paste"
         (onClick)="paste()"
       />
+      }
       <p-button
         label="Reconectar"
         icon="bi bi-arrow-repeat"
@@ -68,6 +76,17 @@
       </a>
     </div>
   </header>
+  @if (state().kind === 'confirm') {
+    <div class="confirm" role="alert" data-terminal-confirm>
+      <p>
+        <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+        Esta terminal va a ejecutar como <strong>root</strong> en el servidor:
+        <strong>{{ actionLabel() }}</strong> (linger, socket de Podman de cada usuario y lista de
+        InfraWard). Ejecútalo solo si lo has pedido tú desde la ficha.
+      </p>
+      <p-button label="Ejecutar" icon="bi bi-play-fill" size="small" data-terminal-action="run" (onClick)="run()" />
+    </div>
+  }
   <!-- El marco lleva borde y padding; xterm va en un div sin padding: addon-fit mide la altura de
        su contenedor y, con border-box, el padding contaría como filas (la última quedaba cortada). -->
   <div class="frame">

@@ -1,3 +1,4 @@
+import { AlertsModule } from './alerts/alerts.module.js';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { AssetsModule } from './assets/assets.module.js';
@@ -48,6 +49,7 @@ import { VaultModule } from './vault/vault.module.js';
     SecretsApiModule,
     VaultModule,
     TerminalModule,
+    AlertsModule,
   ],
 })
 export class AppModule {}

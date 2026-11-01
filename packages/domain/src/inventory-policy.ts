@@ -12,6 +12,7 @@ import {
   type ScanExclusions,
   normalizeScanExclusions,
   scanExclusionMatch,
+  byCodeUnit,
 } from '@infraward/shared-types';
 import type { EntityManager } from 'typeorm';
 import { CONTAINS_LOCK, MAX_TREE_DEPTH } from './asset-tree.js';
@@ -129,7 +130,7 @@ export function resolvePolicies(
       }
     }
     let best: { value: FieldValue<F>; tag: string } | null = null;
-    for (const tag of [...asset.tags].sort()) {
+    for (const tag of [...asset.tags].sort(byCodeUnit)) {
       const value = byTag.get(tag)?.[field];
       if (value === null || value === undefined) continue;
       if (!best || moreRestrictive(field, value as FieldValue<F>, best.value))
@@ -139,7 +140,7 @@ export function resolvePolicies(
       return { value: best.value, source: { kind: 'tag', tag: best.tag } };
     if (!viaTree) return null;
     let bestProject: { value: FieldValue<F>; projectId: string } | null = null;
-    for (const projectId of [...(asset.projects ?? [])].sort()) {
+    for (const projectId of [...(asset.projects ?? [])].sort(byCodeUnit)) {
       const value = byProject.get(projectId)?.[field];
       if (value === null || value === undefined) continue;
       if (
@@ -205,10 +206,10 @@ export function resolvePolicies(
         parentId = assets.get(parentId)?.parentId ?? null;
       }
     }
-    for (const tag of [...asset.tags].sort())
+    for (const tag of [...asset.tags].sort(byCodeUnit))
       push({ kind: 'tag', tag }, byTag.get(tag));
     if (viaTree)
-      for (const projectId of [...(asset.projects ?? [])].sort())
+      for (const projectId of [...(asset.projects ?? [])].sort(byCodeUnit))
         push({ kind: 'project', projectId }, byProject.get(projectId));
     push({ kind: 'global' }, global);
     return list;
@@ -294,7 +295,7 @@ export function resolvePolicies(
 export function policyValues(
   stored: Partial<EffectiveInventoryPolicy> | null | undefined,
 ): InventoryPolicyValues {
-  return { ...DEFAULT_INVENTORY_POLICY, ...(stored?.values ?? {}) };
+  return { ...DEFAULT_INVENTORY_POLICY, ...stored?.values };
 }
 
 /**
@@ -397,7 +398,7 @@ export async function recomputePolicies(m: EntityManager): Promise<number> {
     const json = JSON.stringify(policy);
     const own = projects.get(r.id) ?? [];
     const projectsChanged =
-      own.join(',') !== [...(r.effective_projects ?? [])].sort().join(',');
+      own.join(',') !== [...(r.effective_projects ?? [])].sort(byCodeUnit).join(',');
     if (
       policy &&
       (projectsChanged || stableJson(policy) !== stableJson(r.effective_policy))

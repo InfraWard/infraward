@@ -582,7 +582,7 @@ export class AssetTreeSummaryNodeDto
 
   @ApiProperty({
     description:
-      'Findings `open` por severidad (los de un contenedor son los de su imagen)',
+      'Findings `open` por severidad (los de un contenedor son los de su imagen), sin los de un kernel que no está en ejecución',
     type: 'object',
     properties: Object.fromEntries(
       SEVERITIES.map((s) => [s, { type: 'integer' }]),
@@ -598,6 +598,13 @@ export class AssetTreeSummaryNodeDto
     required: ['CRITICAL', 'HIGH'],
   })
   fixableFindings: Record<'CRITICAL' | 'HIGH', number>;
+
+  @ApiPropertyOptional({
+    description:
+      'Findings `open` de un kernel que no está en ejecución (o de sus cabeceras y herramientas): no cuentan en openFindings ni fixableFindings',
+    type: 'integer',
+  })
+  kernelNotRunningFindings?: number;
 
   @ApiProperty({
     description:

@@ -63,6 +63,7 @@ const node: AssetTreeSummaryNode = {
   runtimeDetail: 'exited',
   openFindings: { ...none, CRITICAL: 3, HIGH: 7 },
   fixableFindings: { CRITICAL: 2, HIGH: 4 },
+  kernelNotRunningFindings: 12,
   sudoersOutdated: false,
   collectionWarnings: 0,
   duplicateOf: null,
@@ -73,14 +74,6 @@ const node: AssetTreeSummaryNode = {
   sshdRisk: null,
   scanDisabled: false,
   children: [],
-};
-
-// jsdom no tiene ResizeObserver (lo usan las pestañas desplazables).
-const noop = (): void => undefined;
-globalThis.ResizeObserver ??= class {
-  observe = noop;
-  unobserve = noop;
-  disconnect = noop;
 };
 
 describe('AssetDetail', () => {
@@ -143,6 +136,9 @@ describe('AssetDetail', () => {
     expect(tabs.at(-1)).toBe('Datos en bruto');
     // El Resumen: vulnerabilidades con parche, contenedor y dependencias; los ids, plegados.
     expect(el.querySelector('[data-section="vulns"]')?.textContent).toContain('2 C · 4 H');
+    expect(el.querySelector('[data-kernel-not-running]')?.textContent).toContain(
+      'Sin contar 12 hallazgos de kernels instalados',
+    );
     expect(el.querySelector('[data-section="container"]')?.textContent).toContain('nginx:1.25');
     const depends = el.querySelector('[data-section="depends"]')!.textContent!;
     expect(depends).toContain('Dentro de');

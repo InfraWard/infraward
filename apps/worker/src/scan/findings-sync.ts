@@ -52,9 +52,12 @@ export async function syncFindings(
     );
     created = rows.filter((r) => r.inserted).length;
   }
+  // También los aceptados: si el escaneo ya no los ve, están corregidos (la aceptación queda
+  // como historial y, si reaparecen, vuelven a abrirse).
   const fixed: [unknown[], number] = await m.query(
     `UPDATE findings SET status = 'fixed', fixed_at = now()
-      WHERE asset_id = $1 AND status = 'open' AND NOT (fingerprint = ANY($2::text[]))`,
+      WHERE asset_id = $1 AND status IN ('open', 'accepted')
+        AND NOT (fingerprint = ANY($2::text[]))`,
     [assetId, vulnerabilities.map((v) => v.fingerprint)],
   );
   return { created, fixed: fixed[1] };

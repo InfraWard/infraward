@@ -20,7 +20,7 @@ import { createHash } from 'node:crypto';
 import { DataSource, type EntityManager } from 'typeorm';
 
 /** Candado de transacción del enlazado (sincronizaciones y tick no se pisan). */
-export const DNS_LINK_LOCK = 0x1d45_0001;
+export const DNS_LINK_LOCK = 0x1d_45_00_01;
 
 const LINKABLE = new Set(['A', 'AAAA', 'CNAME']);
 

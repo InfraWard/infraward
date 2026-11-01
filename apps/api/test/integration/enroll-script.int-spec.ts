@@ -30,8 +30,11 @@ describe('Script de alta contra un servidor SSH real (integración)', () => {
   const a = newAsset();
   const b = newAsset();
 
-  /** El comando embebido tal cual lo da la API (`echo … | base64 -d | gunzip | sudo bash`). */
-  async function enroll(asset: { publicKey: string; id: string }) {
+  /**
+   * El comando embebido tal cual lo da la API (`echo … | base64 -d | gunzip | sudo bash`), con
+   * argumentos del script si se dan (`sudo bash -s -- <args>`, como `--podman-users`).
+   */
+  async function enroll(asset: { publicKey: string; id: string }, args = '') {
     const script = template.render({
       mode: 'embedded',
       apiUrl: '',
@@ -44,8 +47,11 @@ describe('Script de alta contra un servidor SSH real (integración)', () => {
       caVersion: SSH_CA_CONFIG_VERSION,
       issuedAt: Math.floor(Date.now() / 1000),
     });
-    const r = await sshd.root(embeddedCommand(script));
-    expect(r.code, r.stderr).toBe(0);
+    const command = embeddedCommand(script);
+    const r = await sshd.root(
+      args ? command.replace(/sudo bash$/, `sudo bash -s -- ${args}`) : command,
+    );
+    if (!args.includes('root')) expect(r.code, r.stderr).toBe(0);
     return r;
   }
   const connects = async (asset: { privateKey: string }) =>
@@ -116,6 +122,34 @@ describe('Script de alta contra un servidor SSH real (integración)', () => {
     ).not.toBe(0);
     expect((await sshd.root('id inventory')).code).toBe(0);
     expect(await authorizedKeys()).toEqual([OWN_LINE]);
+  });
+
+  it('--podman-users escribe la lista de Podman rootless; sin la opción no se toca; un usuario no válido para antes de tocar nada', async () => {
+    const PODMAN_USERS = '/etc/infraward/podman-users';
+    const users = async () =>
+      (await sshd.root(`cat ${PODMAN_USERS}`)).stdout
+        .split('\n')
+        .filter((l) => l && !l.startsWith('#'));
+    // Un asset propio, que se da de baja al final (el último test cuenta las claves que quedan).
+    const e = newAsset();
+    const r = await enroll(e, '--podman-users=nobody');
+    expect(r.stdout + r.stderr).toMatch(/'nobody' no tiene activo el socket de Podman/);
+    expect(await users()).toEqual(['nobody']);
+    expect((await sshd.root(`stat -c '%U:%G %a' ${PODMAN_USERS}`)).stdout.trim()).toBe('root:root 644');
+    await enroll(e);
+    expect(await users()).toEqual(['nobody']);
+    const d = newAsset();
+    const bad = await enroll(d, '--podman-users=nobody,root');
+    expect(bad.code).not.toBe(0);
+    expect(bad.stdout + bad.stderr).toMatch(/'root' es root/);
+    expect(await users()).toEqual(['nobody']);
+    expect((await authorizedKeys()).some((l) => l.includes(d.id))).toBe(false);
+    await enroll(e, '--podman-users=');
+    expect(await users()).toEqual([]);
+    // La última baja borra la lista con el sudoers.
+    const off = await sshd.root(unenrollCommand(e.id, 'inventory'));
+    expect(off.code, off.stderr).toBe(0);
+    expect((await sshd.root(`test -e ${PODMAN_USERS}`)).code).not.toBe(0);
   });
 
   it('sin claves ajenas, la última baja borra también el usuario', async () => {

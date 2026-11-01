@@ -298,11 +298,17 @@ export interface AssetTreeSummaryNode extends AssetSummary {
   /** Estado tal como lo da la fuente (`exited`, `created`…). */
   runtimeDetail: string | null;
   /**
-   * Findings `open` por severidad. Los de un contenedor son los de su imagen (`instance_of`).
+   * Findings `open` por severidad. Los de un contenedor son los de su imagen (`instance_of`). Sin
+   * los de un kernel que no está en ejecución (`kernelNotRunningFindings`).
    */
   openFindings: Record<Severity, number>;
-  /** Findings `open` CRITICAL y HIGH con versión corregida (hay parche). */
+  /** Findings `open` CRITICAL y HIGH con versión corregida (hay parche), con el mismo criterio. */
   fixableFindings: Record<'CRITICAL' | 'HIGH', number>;
+  /**
+   * Findings `open` de paquetes de un kernel instalado que no es el que corre (o de cabeceras y
+   * herramientas): no cuentan en los dos de arriba. Opcional: 0 si falta.
+   */
+  kernelNotRunningFindings?: number;
   /** La última recolección vio el sudoers por debajo de la versión que necesitan sus roles. */
   sudoersOutdated: boolean;
   /** Avisos de recolección parcial de la última recolección (`facts.infraward.warnings`). */

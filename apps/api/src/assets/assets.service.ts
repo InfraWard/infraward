@@ -120,8 +120,8 @@ export class AssetsService {
       });
     if (query.q)
       qb.andWhere(
-        `(a.name ILIKE :q ESCAPE '\\' OR a.discovered_name ILIKE :q ESCAPE '\\')`,
-        { q: `%${query.q.replace(/[\\%_]/g, '\\$&')}%` },
+        String.raw`(a.name ILIKE :q ESCAPE '\' OR a.discovered_name ILIKE :q ESCAPE '\')`,
+        { q: `%${query.q.replace(/[\\%_]/g, String.raw`\$&`)}%` },
       );
     if (query.facts)
       qb.andWhere('a.facts @> :facts::jsonb', {
@@ -267,7 +267,7 @@ export class AssetsService {
   }
 
   /** Recalcula la política efectiva del inventario (§10) y devuelve el asset al día. */
-  private async recomputed(id: string): Promise<Asset> {
+  private recomputed(id: string): Promise<Asset> {
     return this.db.transaction(async (m) => {
       await recomputePolicies(m);
       return this.findAsset(m, id);

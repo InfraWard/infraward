@@ -271,7 +271,7 @@ export class ScanExclusionsForm {
 
   private patch(change: Partial<ScanExclusions>): void {
     this.value.set(
-      normalizeScanExclusions({ ...(this.value() ?? {}), ...change }),
+      normalizeScanExclusions({ ...this.value(), ...change }),
     );
   }
 

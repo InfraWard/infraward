@@ -128,7 +128,8 @@ export class InventoryReconciler {
     const candidates = await this.candidates(assetId);
     // Una concreta (manual) va aunque no le toque.
     const due = assetId ? candidates : candidates.filter((c) => isDue(c, now));
-    // El del job scheduler (id `repeat:…`) no está en la Actividad: sus recolecciones, sin padre.
+    // El del job scheduler (id `repeat:…`) no está en la Actividad: sus recolecciones, sin padre
+    // y como programadas (`recordQueued` solo usa el trigger si no hay padre).
     const parentJobId = job.repeatJobKey ? undefined : job.id;
     const assetIds: string[] = [];
     for (const c of due) {
@@ -207,7 +208,7 @@ export class InventoryReconciler {
           deduplication: { id: domainsSyncDeduplicationId(assetId) },
         },
       );
-      await recordQueued(this.db, job, parentJobId, this.logger);
+      await recordQueued(this.db, job, parentJobId, this.logger, 'schedule');
       return job.id ?? null;
     } catch (error) {
       this.logger.warn(
@@ -227,7 +228,7 @@ export class InventoryReconciler {
         { assetId, trigger: 'reconcile' } satisfies AssetCollectJobData,
         { jobId: randomUUID(), deduplication: { id: assetId } },
       );
-      await recordQueued(this.db, job, parentJobId, this.logger);
+      await recordQueued(this.db, job, parentJobId, this.logger, 'schedule');
       return job.id ?? null;
     } catch (error) {
       this.logger.warn(

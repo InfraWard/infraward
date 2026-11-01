@@ -100,7 +100,7 @@ export function querySuggestions(
   if (colon > 0) {
     const alias = body.slice(0, colon);
     const info = searchKeyInfo(alias);
-    if (!info || !info.scopes.includes(scope) || info.unsupported) return [];
+    if (!info?.scopes.includes(scope) || info.unsupported) return [];
     const typed = foldText(body.slice(colon + 1).replace(/^"/, ''));
     return (values[info.key] ?? [])
       .filter(
@@ -425,7 +425,7 @@ export class QueryInput {
     setTimeout(() => {
       const input = this.ac()?.inputEL?.nativeElement as
         HTMLInputElement | undefined;
-      if (!input || input.value !== next) return;
+      if (input?.value !== next) return;
       input.focus();
       input.setSelectionRange(next.length, next.length);
     });

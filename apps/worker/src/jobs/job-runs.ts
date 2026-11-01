@@ -7,7 +7,7 @@ import {
   recordQueuedJob,
   type RecordableJob,
 } from '@infraward/domain';
-import type { JobRunState } from '@infraward/shared-types';
+import type { JobRunState, JobRunTrigger } from '@infraward/shared-types';
 import type { Job } from 'bullmq';
 import { DataSource } from 'typeorm';
 
@@ -45,17 +45,19 @@ export function failedUpdate(
 
 /**
  * Registra en `job_runs` un job que el worker acaba de encolar (cadenas: recolección →
- * descubrimiento → recolecciones y escaneos), con el job que lo encoló. Un fallo aquí no afecta
- * al job: la fila se creará cuando empiece.
+ * descubrimiento → recolecciones y escaneos), con el job que lo encoló o, si no cuelga de
+ * ninguno, qué lo lanzó (`schedule`: la comprobación periódica). Un fallo aquí no afecta al job:
+ * la fila se creará cuando empiece.
  */
 export async function recordQueued(
   db: DataSource,
   job: Job,
   parentJobId: string | null | undefined,
   logger: Logger,
+  trigger: JobRunTrigger | null = null,
 ): Promise<void> {
   try {
-    await recordQueuedJob(db.manager, job, parentJobId ?? null);
+    await recordQueuedJob(db.manager, job, parentJobId ?? null, trigger);
   } catch (error) {
     logger.warn(
       `No se pudo registrar el job ${job.id}: ${(error as Error).name}`,

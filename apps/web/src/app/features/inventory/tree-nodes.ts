@@ -47,6 +47,8 @@ export interface InventoryRow {
   fixableHigh: number;
   /** «791 abiertos: 20 CRITICAL · 183 HIGH · …» para el tooltip. */
   findingsSummary: string;
+  /** Findings de kernels que no están en ejecución: no cuentan en los de arriba. */
+  kernelNotRunning: number;
   /** Escaneo desactivado por su política (§10): sus findings no cuentan. */
   scanDisabled: boolean;
 }
@@ -97,6 +99,7 @@ export function toRow(
     findingsSummary: total
       ? `${total} abiertas: ${present.map((s) => `${node.openFindings[s]} ${s}`).join(' · ')}`
       : '',
+    kernelNotRunning: node.kernelNotRunningFindings ?? 0,
     scanDisabled: node.scanDisabled ?? false,
   };
 }
@@ -108,6 +111,14 @@ export function fixableLabel(row: InventoryRow): string | null {
     row.fixableHigh ? `${row.fixableHigh} H` : '',
   ].filter(Boolean);
   return parts.length ? parts.join(' · ') : null;
+}
+
+/**
+ * «Sin contar 1.088 de kernels instalados que no están en ejecución»: dnf guarda varios kernels y
+ * Trivy cuelga de los antiguos los CVE ya corregidos en el que corre.
+ */
+export function kernelNotRunningLabel(n: number): string {
+  return `Sin contar ${n.toLocaleString('es-ES')} ${n === 1 ? 'hallazgo' : 'hallazgos'} de kernels instalados que no están en ejecución (ni sus cabeceras o herramientas).`;
 }
 
 /** Claves de todos los nodos con hijos (para «Expandir todo»). */

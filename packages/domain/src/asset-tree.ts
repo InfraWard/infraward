@@ -8,7 +8,7 @@ export const MAX_TREE_DEPTH = 32;
  * Clave de `pg_advisory_xact_lock` que serializa las altas y cambios de relaciones `contains`
  * (API y descubridores del worker): sin ella, dos altas A→B y B→A a la vez crean un ciclo.
  */
-export const CONTAINS_LOCK = 0x1f_a55e7;
+export const CONTAINS_LOCK = 0x1_fa_55_e7;
 
 /** Fila de un recorrido del árbol `contains`: el asset, su padre dentro del recorrido y su nivel. */
 export interface AssetTreeRow {

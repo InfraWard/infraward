@@ -1,5 +1,5 @@
 /** Marca de orden de bytes UTF-8: sin ella, Excel lee mal las tildes. */
-const BOM = String.fromCharCode(0xfeff);
+const BOM = String.fromCodePoint(0xfeff);
 
 /** Valor de una celda: las listas van unidas con `; ` en la misma celda. */
 export type CsvValue =

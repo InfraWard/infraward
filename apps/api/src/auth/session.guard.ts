@@ -149,5 +149,5 @@ function readBearer(request: FastifyRequest): string | null {
   const header = request.headers.authorization;
   if (typeof header !== 'string') return null;
   const match = /^Bearer\s+(\S+)\s*$/i.exec(header);
-  return match && match[1].startsWith(API_TOKEN_PREFIX) ? match[1] : null;
+  return match?.[1].startsWith(API_TOKEN_PREFIX) ? match[1] : null;
 }

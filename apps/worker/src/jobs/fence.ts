@@ -9,7 +9,7 @@ import { currentJob, SupersededError } from './job-context.js';
  */
 export async function assertFence(m: EntityManager): Promise<void> {
   const context = currentJob();
-  if (!context || context.attempt === null) return;
+  if (context?.attempt == null) return;
   const [row]: { attempt: number }[] = await m.query(
     'SELECT attempt FROM job_runs WHERE id = $1 FOR UPDATE',
     [context.job.id],

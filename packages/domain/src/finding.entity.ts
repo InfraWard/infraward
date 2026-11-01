@@ -29,6 +29,8 @@ import { Asset } from './asset.entity.js';
 @Index('IDX_findings_status_opened_at', ['status', 'openedAt'])
 // (status, priority DESC): en la migración (TypeORM no declara DESC).
 @Index('IDX_findings_status_priority', { synchronize: false })
+// (accept_expires_at) WHERE status = 'accepted': en la migración (índice parcial).
+@Index('IDX_findings_accept_expires', { synchronize: false })
 export class Finding {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -133,4 +135,20 @@ export class Finding {
   /** Cuándo se avisó de que es crítico, está en KEV y expuesto (una vez por apertura). */
   @Column({ name: 'kev_alerted_at', type: 'timestamptz', nullable: true })
   kevAlertedAt: Date | null;
+
+  /**
+   * Última aceptación del riesgo (`accepted`): quién (email), cuándo, por qué y hasta cuándo. Se
+   * conservan al reabrirlo como historial; al caducar, el worker lo vuelve a `open`.
+   */
+  @Column({ name: 'accepted_at', type: 'timestamptz', nullable: true })
+  acceptedAt: Date | null;
+
+  @Column({ name: 'accepted_by', type: 'varchar', length: 320, nullable: true })
+  acceptedBy: string | null;
+
+  @Column({ name: 'accept_reason', type: 'text', nullable: true })
+  acceptReason: string | null;
+
+  @Column({ name: 'accept_expires_at', type: 'timestamptz', nullable: true })
+  acceptExpiresAt: Date | null;
 }

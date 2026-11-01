@@ -119,7 +119,7 @@ export class OpenBaoSecretProvider
   async signSshKey(request: SshCertificateRequest): Promise<string> {
     const where = `${this.config.sshMount}/sign/${this.config.sshRole}`;
     const key = parseSshPublicKey(request.publicKey);
-    if (!key || key.type !== 'ssh-ed25519')
+    if (key?.type !== 'ssh-ed25519')
       throw new TypeError('Solo se firman claves públicas ssh-ed25519');
     if (!PRINCIPAL.test(request.principal))
       throw new TypeError('Principal SSH inválido');

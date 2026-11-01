@@ -48,6 +48,7 @@ describe('AssetRelationMap', () => {
     fixture.componentRef.setInput('depth', 3);
     await fixture.whenStable();
     http.expectOne('/api/assets/web1/graph?depth=3').flush(web1Graph());
+    expect(() => http.verify()).not.toThrow();
   });
 
   it('un nodo abre su tarjeta; «Centrar aquí» recentra y «Volver a» regresa', async () => {

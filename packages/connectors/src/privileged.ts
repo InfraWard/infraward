@@ -5,6 +5,14 @@ import {
   VOLUME_FORMAT,
 } from './docker/formats.js';
 import { PLESK_QUERIES } from './plesk/queries.js';
+import {
+  PODMAN_CONTAINER_FORMAT,
+  PODMAN_IMAGE_FORMAT,
+  PODMAN_NETWORK_FORMAT,
+  PODMAN_POD_FORMAT,
+  PODMAN_VOLUME_FORMAT,
+} from './podman/formats.js';
+import { PODMAN_USERS_SCRIPT } from './podman/podman-users.js';
 import { PROCESS_PACKAGES_SCRIPT } from './processes/process-packages.js';
 import { SSHD_AUTH_SCRIPT } from './sshd/sshd-auth.js';
 import { NGINX_DUMP, NGINX_ROUTES_SCRIPT } from './proxies/nginx-filter.js';
@@ -26,7 +34,7 @@ export const LEGACY_PLESK_QUERY_HELPER =
 /** Código de salida del ayudante cuando rechaza una consulta o un argumento. */
 export const QUERY_REJECTED_EXIT = 64;
 
-/** Máximo de ids o nombres por llamada a `docker inspect` (el conector trocea). */
+/** Máximo de ids o nombres por llamada a `docker inspect` (el conector trocea; con Podman, sin contar el ámbito). */
 export const MAX_INSPECT_ARGS = 256;
 
 /** Validaciones de argumentos (las mismas expresiones en el ayudante). */
@@ -34,13 +42,55 @@ export const QUERY_ARG = {
   /** Nombre de nodo de Proxmox. */
   node: /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/,
   /** vmid de Proxmox (100 a 999999999). */
-  vmid: /^[1-9][0-9]{2,8}$/,
+  vmid: /^[1-9]\d{2,8}$/,
   guestKind: /^(?:lxc|qemu)$/,
   containerId: /^[0-9a-f]{64}$/,
   imageId: /^sha256:[0-9a-f]{64}$/,
   /** Nombres de volumen y de red de Docker (sin `-` inicial: no cuelan opciones). */
   dockerName: /^[A-Za-z0-9][A-Za-z0-9_.-]{0,254}$/,
+  /**
+   * Ámbito de Podman (v8): `root` (rootful) o el uid de un usuario rootless. El ayudante exige
+   * además que el uid sea de un usuario de `/etc/infraward/podman-users`.
+   */
+  podmanScope: /^(?:root|[1-9][0-9]{0,9})$/,
 } as const;
+
+/** Socket de Podman de un usuario rootless (`systemctl --user enable --now podman.socket`). */
+export function podmanUserSocket(uid: string): string {
+  return `/run/user/${uid}/podman/podman.sock`;
+}
+
+/**
+ * `sh -c PODMAN_AS_USER_SCRIPT sh <uid> <comando…>`: el comando como el usuario de ese uid
+ * (`runuser`, con sus grupos). El ayudante lleva el mismo texto (un test compara los comandos).
+ */
+export const PODMAN_AS_USER_SCRIPT =
+  'u=$(id -nu "$1") || exit 125; shift; exec runuser -u "$u" -- "$@"';
+
+/**
+ * `podman` en un ámbito: como root, el propio CLI (Podman no tiene demonio: ve el almacén de
+ * root); de un usuario rootless, el CLI en modo remoto contra el socket de ese usuario y
+ * **ejecutado como ese usuario**: el socket y lo que responde son suyos, así que el cliente no
+ * corre como root (un enlace al socket de root o un servidor falso no le dan nada que no tenga).
+ */
+export function podmanArgv(scope: string, ...args: string[]): string[] {
+  return scope === 'root'
+    ? ['podman', ...args]
+    : [
+        'sh',
+        '-c',
+        PODMAN_AS_USER_SCRIPT,
+        'sh',
+        scope,
+        'env',
+        `XDG_RUNTIME_DIR=/run/user/${scope}`,
+        'podman',
+        '--remote',
+        '--url',
+        `unix://${podmanUserSocket(scope)}`,
+        ...args,
+      ];
+}
 
 const PVESH_GET = ['pvesh', 'get'];
 /** `sh -c <filtro> sh <comando…>`: el filtro de nginx corre en el servidor (v5). */
@@ -80,6 +130,18 @@ const many = (prefix: string[], pattern: RegExp): QuerySpec => ({
   arity: [1, MAX_INSPECT_ARGS],
   args: [pattern],
   argv: (args) => [...prefix, ...args],
+});
+/** Consulta de Podman (v8): el ámbito y nada más. */
+const podman = (...args: string[]): QuerySpec => ({
+  arity: [1, 1],
+  args: [QUERY_ARG.podmanScope],
+  argv: ([scope]) => podmanArgv(scope, ...args),
+});
+/** Consulta de Podman con el ámbito y de 1 a `MAX_INSPECT_ARGS` ids o nombres. */
+const podmanMany = (args: string[], pattern: RegExp): QuerySpec => ({
+  arity: [2, MAX_INSPECT_ARGS + 1],
+  args: [QUERY_ARG.podmanScope, pattern],
+  argv: ([scope, ...rest]) => podmanArgv(scope, ...args, ...rest),
 });
 
 /**
@@ -146,6 +208,43 @@ export const PRIVILEGED_QUERIES = {
     arity: [1, 1],
     args: [QUERY_ARG.imageId],
     argv: ([id]) => ['docker', 'save', id],
+  },
+  // v8: Podman. El ámbito (`root` o el uid de un usuario rootless de la lista) va siempre primero.
+  'podman-version': fixed('podman', 'info', '--format', '{{.Version.Version}}'),
+  'podman-users': fixed('sh', '-c', PODMAN_USERS_SCRIPT, 'sh'),
+  'podman-ps': podman('ps', '-a', '-q', '--no-trunc'),
+  'podman-inspect-containers': podmanMany(
+    ['container', 'inspect', '--format', PODMAN_CONTAINER_FORMAT],
+    QUERY_ARG.containerId,
+  ),
+  'podman-pods': podman('pod', 'ps', '--no-trunc', '--format', PODMAN_POD_FORMAT),
+  'podman-images': podman('images', '-q', '--no-trunc'),
+  'podman-image-inspect': podmanMany(
+    ['image', 'inspect', '--format', PODMAN_IMAGE_FORMAT],
+    QUERY_ARG.imageId,
+  ),
+  'podman-volumes': podman('volume', 'ls', '-q'),
+  'podman-volume-inspect': podmanMany(
+    ['volume', 'inspect', '--format', PODMAN_VOLUME_FORMAT],
+    QUERY_ARG.dockerName,
+  ),
+  'podman-networks': podman('network', 'ls', '--format', '{{.Name}}'),
+  'podman-network-inspect': podmanMany(
+    ['network', 'inspect', '--format', PODMAN_NETWORK_FORMAT],
+    QUERY_ARG.dockerName,
+  ),
+  'podman-save': {
+    arity: [2, 2],
+    args: [QUERY_ARG.podmanScope, QUERY_ARG.imageId],
+    // A la salida estándar, como `docker save` (docker-archive: lo que lee Trivy).
+    argv: ([scope, id]) =>
+      podmanArgv(scope, 'save', '--format', 'docker-archive', id),
+  },
+  'podman-nginx-routes': {
+    arity: [2, 2],
+    args: [QUERY_ARG.podmanScope, QUERY_ARG.containerId],
+    argv: ([scope, id]) =>
+      nginxRoutes(...podmanArgv(scope, 'exec', id), ...NGINX_DUMP),
   },
   // v5 (QoL-5b): rutas de nginx/NPM filtradas en el servidor (solo nombres y destinos).
   'nginx-routes': { ...fixed(), argv: () => nginxRoutes(...NGINX_DUMP) },

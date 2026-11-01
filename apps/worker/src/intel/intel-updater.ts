@@ -214,7 +214,7 @@ export class IntelUpdater {
       if (current) await this.queue.removeJobScheduler(VULNERABILITY_INTEL_ID);
       return;
     }
-    const every = hours * 3600_000;
+    const every = hours * 3_600_000;
     if (current && Number(current.every) === every) return;
     await this.queue.upsertJobScheduler(
       VULNERABILITY_INTEL_ID,

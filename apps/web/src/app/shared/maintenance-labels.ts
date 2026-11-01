@@ -121,6 +121,20 @@ export function sectionLabel(section: string): string {
   return SNAPSHOT_SECTION_LABELS[section] ?? section;
 }
 
+/** Qué es cada tipo de notificación (filtro de los canales de alertas). */
+export const NOTIFICATION_KIND_LABELS: Record<NotificationKind, string> = {
+  asset_created: 'Assets nuevos',
+  asset_missing: 'Assets desaparecidos',
+  asset_reactivated: 'Assets que reaparecen',
+  asset_retired: 'Assets retirados',
+  reconcile_failed: 'Fallos de la reconciliación',
+  expiry_warning: 'Caducidad de dominios y certificados',
+  dns_dangling: 'Registros DNS colgantes',
+  vulnerability_kev: 'CVE críticos en KEV y expuestos',
+  vault_revealed: 'Credencial revelada (solo admins)',
+  finding_acceptance_expired: 'Riesgo aceptado caducado',
+};
+
 export const NOTIFICATION_ICONS: Record<NotificationKind, string> = {
   asset_created: 'bi-plus-circle',
   asset_missing: 'bi-question-circle',
@@ -131,6 +145,7 @@ export const NOTIFICATION_ICONS: Record<NotificationKind, string> = {
   dns_dangling: 'bi-signpost-split',
   vulnerability_kev: 'bi-shield-fill-exclamation',
   vault_revealed: 'bi-safe2',
+  finding_acceptance_expired: 'bi-hourglass-bottom',
 };
 
 export const NOTIFICATION_SEVERITY: Record<NotificationKind, TagSeverity> = {
@@ -143,4 +158,5 @@ export const NOTIFICATION_SEVERITY: Record<NotificationKind, TagSeverity> = {
   dns_dangling: 'danger',
   vulnerability_kev: 'danger',
   vault_revealed: 'warn',
+  finding_acceptance_expired: 'warn',
 };

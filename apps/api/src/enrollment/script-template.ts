@@ -57,14 +57,14 @@ const RULES: Record<keyof ScriptFields, RegExp> = {
   publicKey:
     /^ssh-ed25519 [A-Za-z0-9+/]+={0,2} inventory@infraward:[0-9a-f-]{36}$/,
   keyComment: /^inventory@infraward:[0-9a-f-]{36}$/,
-  sudoersVersion: /^[1-9][0-9]{0,5}$/,
+  sudoersVersion: /^[1-9]\d{0,5}$/,
   // Una clave por línea (las une `render`); sin comillas posibles.
   caKeys:
     /^ssh-ed25519 [A-Za-z0-9+/]+={0,2}(\nssh-ed25519 [A-Za-z0-9+/]+={0,2})*$/,
-  caVersion: /^[1-9][0-9]{0,5}$/,
-  issuedAt: /^[1-9][0-9]{9,10}$/,
+  caVersion: /^[1-9]\d{0,5}$/,
+  issuedAt: /^[1-9]\d{9,10}$/,
   adminAccess: /^(keep|operator|none)$/,
-  adminAccessVersion: /^[1-9][0-9]{0,5}$/,
+  adminAccessVersion: /^[1-9]\d{0,5}$/,
 };
 
 const PLACEHOLDERS: Record<keyof ScriptFields, string> = {

@@ -10,7 +10,7 @@ import { VaultService } from './vault.service.js';
 
 const HOUR = 3_600_000;
 /** Clave del advisory lock: con varias réplicas de la API, solo una purga a la vez. */
-const PURGE_LOCK = 0x1a17_0007;
+const PURGE_LOCK = 0x1a_17_00_07;
 
 /**
  * Destruye cada hora (y al arrancar) las entradas de la caja fuerte borradas hace más del plazo.

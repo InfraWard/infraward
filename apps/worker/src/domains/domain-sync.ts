@@ -42,7 +42,7 @@ import { DomainLinker } from './domain-linker.js';
 import { ServiceLinker } from './service-linker.js';
 
 /** Un dominio se consulta por RDAP como mucho una vez en este tiempo. */
-const RDAP_REFRESH_MS = 24 * 3600_000;
+const RDAP_REFRESH_MS = 24 * 3_600_000;
 /** Tope de nombres cuyo 443 se lee en una sincronización. */
 const TLS_MAX_NAMES = 1000;
 
@@ -221,7 +221,7 @@ export class DomainSync {
 
   private async connector(assetId: string): Promise<Asset> {
     const asset = await this.db.getRepository(Asset).findOne({ where: { id: assetId } });
-    if (!asset || asset.type !== 'dns_provider')
+    if (asset?.type !== 'dns_provider')
       throw new DiscoveryError('El conector no existe');
     if (asset.status !== 'active') throw new DiscoveryError('El conector no está activo');
     return asset;

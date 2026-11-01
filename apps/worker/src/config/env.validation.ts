@@ -38,6 +38,11 @@ function EnvBoolean(defaultValue: boolean) {
   );
 }
 
+/** Opcional vacía (`VAR=` o `${VAR:-}` en compose) = sin definir. */
+function EmptyAsUndefined() {
+  return Transform(({ value }: { value: unknown }) => (value === '' ? undefined : value));
+}
+
 /** Variables de entorno del worker. Se validan al arrancar: si algo falla, el worker no inicia. */
 export class EnvironmentVariables {
   @IsIn(NODE_ENVS)
@@ -92,6 +97,15 @@ export class EnvironmentVariables {
   @Min(0)
   @Max(100)
   DOMAINS_SYNC_CONCURRENCY: number = 2;
+
+  /**
+   * Envíos de alertas (`alert.deliver`, `alert.test`) a la vez: cola propia, para que un webhook
+   * lento no espere tras KEV/EPSS o la prioridad (cola `system`) ni las retrase.
+   */
+  @IsInt()
+  @Min(0)
+  @Max(50)
+  ALERTS_CONCURRENCY: number = 2;
 
   /** Comprobaciones de la reconciliación (`inventory.reconcile`) a la vez. */
   @IsInt()
@@ -160,6 +174,22 @@ export class EnvironmentVariables {
   @Min(1)
   @Max(3650)
   JOB_RUNS_RETENTION_DAYS: number = 30;
+
+  /**
+   * Días que se conserva el log de cada ejecución (pasos, comandos, stderr y resultado; DESIGN
+   * §20, «Log de cada ejecución»). Como mucho lo que dure su fila de `job_runs`: al podarse el
+   * historial, su log se va con él.
+   */
+  @IsInt()
+  @Min(1)
+  @Max(3650)
+  COLLECTION_LOG_RETENTION_DAYS: number = 30;
+
+  /** Tope del log de una ejecución (KiB); al llegar se descartan las líneas siguientes. */
+  @IsInt()
+  @Min(32)
+  @Max(4096)
+  COLLECTION_LOG_MAX_KB: number = 256;
 
   // Base de datos: el worker lee y actualiza el inventario (las migraciones las aplica la API).
   @IsString()
@@ -465,6 +495,71 @@ export class EnvironmentVariables {
   @IsOptional()
   @Matches(/^[0-9a-fA-F.:[\]]+(,[0-9a-fA-F.:[\]]+)*$/)
   DOMAINS_DNS_SERVERS?: string;
+
+  // Alertas fuera de la app (DESIGN §10): webhooks y correo.
+
+  /** URL de la web (`https://infraward.example`): los enlaces de las alertas. Sin ella, sin enlaces. */
+  @EmptyAsUndefined()
+  @IsOptional()
+  @Matches(/^https?:\/\/[^\s]+$/)
+  ALERTS_PUBLIC_URL?: string;
+
+  /** Webhooks por `http:` (por defecto solo `https:`). */
+  @EnvBoolean(false)
+  @IsBoolean()
+  ALERTS_WEBHOOK_ALLOW_HTTP: boolean = false;
+
+  /**
+   * Webhooks a IPs privadas (RFC 1918, CGNAT, ULA), p. ej. un ntfy o n8n de casa. Loopback, enlace
+   * local y metadatos de la nube, nunca.
+   */
+  @EnvBoolean(false)
+  @IsBoolean()
+  ALERTS_WEBHOOK_ALLOW_PRIVATE: boolean = false;
+
+  /** Milisegundos máximos de cada envío (webhook o correo). */
+  @IsInt()
+  @Min(1000)
+  @Max(120_000)
+  ALERTS_TIMEOUT_MS: number = 10_000;
+
+  /** Servidor SMTP de las alertas por correo. Sin él, los canales de correo no envían. */
+  @EmptyAsUndefined()
+  @IsOptional()
+  @IsString()
+  SMTP_HOST?: string;
+
+  @IsInt()
+  @Min(1)
+  @Max(65_535)
+  SMTP_PORT: number = 587;
+
+  /** TLS desde el principio (465). Si no, STARTTLS obligatorio (salvo SMTP_REQUIRE_TLS=false). */
+  @EnvBoolean(false)
+  @IsBoolean()
+  SMTP_SECURE: boolean = false;
+
+  /** Exigir STARTTLS cuando SMTP_SECURE=false (solo un relay local sin TLS lo desactiva). */
+  @EnvBoolean(true)
+  @IsBoolean()
+  SMTP_REQUIRE_TLS: boolean = true;
+
+  @EmptyAsUndefined()
+  @IsOptional()
+  @IsString()
+  SMTP_USER?: string;
+
+  /** Contraseña SMTP como referencia `secret://<proveedor>/<ruta>#<campo>` (nunca en claro). */
+  @EmptyAsUndefined()
+  @IsOptional()
+  @Matches(/^secret:\/\/[^\s]+#[^\s]+$/)
+  SMTP_PASSWORD_REF?: string;
+
+  /** Remitente (`InfraWard <alertas@example.com>`). */
+  @EmptyAsUndefined()
+  @IsOptional()
+  @IsString()
+  SMTP_FROM?: string;
 }
 
 /** Concurrencia de cada cola en esta réplica (0 = no la consume), DESIGN §20. */
@@ -480,6 +575,7 @@ export function queueConcurrency(
     | 'SCAN_CONCURRENCY'
     | 'HOST_SCAN_CONCURRENCY'
     | 'SBOM_CONCURRENCY'
+    | 'ALERTS_CONCURRENCY'
   >,
 ): Record<QueueName, number> {
   const imageScan = env.IMAGE_SCAN_CONCURRENCY ?? env.SCAN_CONCURRENCY ?? 1;
@@ -493,6 +589,7 @@ export function queueConcurrency(
     [QUEUE_NAMES.imageScan]: imageScan,
     [QUEUE_NAMES.hostScan]: env.HOST_SCAN_CONCURRENCY,
     [QUEUE_NAMES.sbom]: env.SBOM_CONCURRENCY,
+    [QUEUE_NAMES.alerts]: env.ALERTS_CONCURRENCY,
     // Cola anterior a W-0: solo se drena lo que quedara en ella al actualizar.
     [QUEUE_NAMES.scan]: Math.min(
       1,
@@ -537,6 +634,14 @@ export function validateEnv(
   if (Object.values(queueConcurrency(env)).every((n) => n === 0)) {
     throw new Error(
       'Configuración de entorno inválida: todas las concurrencias son 0 (el worker no consumiría ninguna cola)',
+    );
+  }
+  if (env.SMTP_HOST && !env.SMTP_FROM) {
+    throw new Error('Configuración de entorno inválida: SMTP_HOST necesita SMTP_FROM (remitente)');
+  }
+  if (Boolean(env.SMTP_USER) !== Boolean(env.SMTP_PASSWORD_REF)) {
+    throw new Error(
+      'Configuración de entorno inválida: SMTP_USER y SMTP_PASSWORD_REF van juntas (o ninguna)',
     );
   }
   const providers = secretsProviders(env.SECRETS_PROVIDERS);

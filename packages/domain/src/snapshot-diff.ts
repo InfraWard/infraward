@@ -1,8 +1,9 @@
-import type {
-  AssetFacts,
-  SnapshotChange,
-  SnapshotChangeSummary,
-  SnapshotDiff,
+import {
+  byCodeUnit,
+  type AssetFacts,
+  type SnapshotChange,
+  type SnapshotChangeSummary,
+  type SnapshotDiff,
 } from '@infraward/shared-types';
 
 /**
@@ -181,7 +182,7 @@ export function diffSnapshots(
   next: SnapshotState,
 ): SnapshotDiff {
   const all: SnapshotChange[] = [];
-  diffSet('roles', [...prev.roles].sort(), [...next.roles].sort(), all);
+  diffSet('roles', [...prev.roles].sort(byCodeUnit), [...next.roles].sort(byCodeUnit), all);
   diffValue(stripVolatile(prev.facts), stripVolatile(next.facts), [], '', all);
   const summary = new Map<string, SnapshotChangeSummary>();
   for (const c of all) {
@@ -229,7 +230,7 @@ function diffValue(
   }
   if (isObject(before) && isObject(after)) {
     const keys = new Set([...Object.keys(before), ...Object.keys(after)]);
-    for (const k of [...keys].sort())
+    for (const k of [...keys].sort(byCodeUnit))
       diffValue(before[k], after[k], [...path, k], join(display, k), out);
     return;
   }
@@ -263,7 +264,7 @@ function diffList(
   const a = byKey(before as Item[], keyed.key);
   const b = byKey(after as Item[], keyed.key);
   const keys = new Set([...a.keys(), ...b.keys()]);
-  for (const k of [...keys].sort())
+  for (const k of [...keys].sort(byCodeUnit))
     diffValue(a.get(k), b.get(k), [...path, '*'], `${display}[${k}]`, out);
 }
 
@@ -273,7 +274,8 @@ function byKey(items: Item[], key: (item: Item) => string): Map<string, Item> {
   for (const item of items) {
     const base = key(item);
     let k = base;
-    for (let n = 2; map.has(k); n++) k = `${base}#${n}`;
+    let n = 2;
+    while (map.has(k)) k = `${base}#${n++}`;
     map.set(k, item);
   }
   return map;
@@ -288,10 +290,10 @@ function diffSet(
 ): void {
   const a = new Set(before.map((v) => JSON.stringify(v)));
   const b = new Set(after.map((v) => JSON.stringify(v)));
-  for (const v of [...a].sort())
+  for (const v of [...a].sort(byCodeUnit))
     if (!b.has(v))
       out.push({ path: display, kind: 'removed', before: JSON.parse(v) });
-  for (const v of [...b].sort())
+  for (const v of [...b].sort(byCodeUnit))
     if (!a.has(v))
       out.push({ path: display, kind: 'added', after: JSON.parse(v) });
 }

@@ -9,7 +9,7 @@ import type { LookupFunction } from 'node:net';
  * existe; cualquier otro error ⇒ no se sabe.
  */
 export function classifyLookup(codes: readonly (string | null)[]): CnameLookup {
-  if (codes.some((c) => c === null)) return 'exists';
+  if (codes.includes(null)) return 'exists';
   if (codes.every((c) => c === 'ENOTFOUND')) return 'nxdomain';
   if (codes.every((c) => c === 'ENOTFOUND' || c === 'ENODATA')) return 'exists';
   return 'error';

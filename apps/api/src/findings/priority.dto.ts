@@ -12,7 +12,6 @@ import {
   type IntelStatus,
   type JobRunState,
   type KevEntry,
-  type NoiseReason,
   type PriorityBand,
   type PriorityInfo,
   type PriorityReason,
@@ -193,4 +192,4 @@ export class IntelStatusDto implements IntelStatus {
   trivy: TrivyDbStatus;
 }
 
-export type { NoiseReason };
+export type { NoiseReason } from '@infraward/shared-types';

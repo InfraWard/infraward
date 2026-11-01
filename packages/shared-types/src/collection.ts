@@ -1,13 +1,19 @@
 // Contratos de la recolección de servidores (DESIGN §8).
 
 import type { InventoryTrigger } from './inventory.js';
+import type { PodmanRootlessUser } from './podman.js';
 import type { ProxyFacts, ProxyRoute } from './service-paths.js';
 
 /**
  * Roles que asigna la detección. Al recoger se sustituyen solo estos: los roles que no estén en
  * la lista (puestos a mano) se conservan.
  */
-export const DETECTED_ROLES = ['proxmox-node', 'plesk', 'docker-host'] as const;
+export const DETECTED_ROLES = [
+  'proxmox-node',
+  'plesk',
+  'docker-host',
+  'podman-host',
+] as const;
 export type DetectedRole = (typeof DETECTED_ROLES)[number];
 
 export interface CollectedOs {
@@ -102,6 +108,16 @@ export interface CollectedDetection {
   plesk: string | null;
   /** Versión del demonio de Docker si `docker info` responde. */
   docker: string | null;
+  /**
+   * Versión de Podman (`podman info` como root) si está instalado; `desconocida` si el sudoers no
+   * deja preguntarla (anterior a la v8). Ausente en facts anteriores.
+   */
+  podman?: string | null;
+  /**
+   * Usuarios con Podman rootless detectados en el host (sudoers v8; ausente si no se pudo
+   * preguntar). Los que no están habilitados no se inventarían: la ficha ofrece «Habilitar».
+   */
+  podmanUsers?: PodmanRootlessUser[];
 }
 
 /** Datos de la propia recolección. */
@@ -284,6 +300,7 @@ export interface AssetCollectJobResult {
 export const DISCOVERABLE_ROLES = [
   'proxmox-node',
   'docker-host',
+  'podman-host',
   'plesk',
 ] as const;
 export type DiscoverableRole = (typeof DISCOVERABLE_ROLES)[number];
@@ -334,10 +351,25 @@ export interface DockerPortBinding {
 }
 
 /**
- * Datos de un contenedor según Docker; van en `facts.docker` del hijo. Solo lo necesario:
- * nunca el entorno (`Config.Env`), que suele llevar secretos, ni las etiquetas.
+ * Motor de un hijo de un host de contenedores. Los de Podman usan las mismas fichas que los de
+ * Docker (`facts.docker`, así el escaneo, los hallazgos y los caminos de servicio no distinguen)
+ * con `engine: 'podman'`; sin `engine`, Docker.
  */
-export interface DockerContainerFacts {
+export interface ContainerEngineFacts {
+  engine?: 'podman';
+  /**
+   * Usuario dueño de un contenedor, volumen o red de Podman rootless (uno de los de
+   * `/etc/infraward/podman-users`); sin él, rootful.
+   */
+  rootlessUser?: string;
+  rootlessUid?: number;
+}
+
+/**
+ * Datos de un contenedor según Docker (o Podman); van en `facts.docker` del hijo. Solo lo
+ * necesario: nunca el entorno (`Config.Env`), que suele llevar secretos, ni las etiquetas.
+ */
+export interface DockerContainerFacts extends ContainerEngineFacts {
   id: string;
   name: string;
   /** Referencia con la que se creó (`nginx:1.25`). */
@@ -376,6 +408,10 @@ export interface DockerContainerFacts {
   proxyRoutes?: ProxyRoute[];
   /** Configuración de nginx o NPM leída con `docker exec … nginx -T`, filtrada en el servidor. */
   proxy?: ProxyFacts | null;
+  /** Podman: pod al que pertenece (su nombre). */
+  pod?: string;
+  /** Podman: unidad de systemd que lo gestiona (Quadlet o `podman generate systemd`). */
+  systemdUnit?: string;
   discoveredAt: string;
 }
 
@@ -400,7 +436,7 @@ export interface DockerContainerNetwork {
 }
 
 /** Volumen de Docker; va en `facts.docker` del asset `volume`. Nunca `Options` ni `Labels`. */
-export interface DockerVolumeFacts {
+export interface DockerVolumeFacts extends ContainerEngineFacts {
   name: string;
   driver: string;
   scope: string | null;
@@ -415,7 +451,7 @@ export interface DockerNetworkSubnet {
 }
 
 /** Red de Docker; va en `facts.docker` del asset `network`. Nunca `Options` ni `Labels`. */
-export interface DockerNetworkFacts {
+export interface DockerNetworkFacts extends ContainerEngineFacts {
   id: string;
   name: string;
   driver: string;

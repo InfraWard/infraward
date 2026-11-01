@@ -28,6 +28,11 @@ import { Dashboards1792524409442 } from './1792524409442-Dashboards.js';
 import { JobRunWorker1792600000000 } from './1792600000000-JobRunWorker.js';
 import { TerminalGateway1792618164631 } from './1792618164631-TerminalGateway.js';
 import { TerminalAccess1792696046490 } from './1792696046490-TerminalAccess.js';
+import { AcceptFindingRisk1793313778000 } from './1793313778000-AcceptFindingRisk.js';
+import { AlertChannels1793313779000 } from './1793313779000-AlertChannels.js';
+import { TerminalAction1793313780000 } from './1793313780000-TerminalAction.js';
+import { CollectionLogs1793453112117 } from './1793453112117-CollectionLogs.js';
+import { JobRunTrigger1793487024000 } from './1793487024000-JobRunTrigger.js';
 
 export const migrations = [
   CreateUsers1791480572212,
@@ -59,4 +64,9 @@ export const migrations = [
   JobRunWorker1792600000000,
   TerminalGateway1792618164631,
   TerminalAccess1792696046490,
+  AcceptFindingRisk1793313778000,
+  AlertChannels1793313779000,
+  TerminalAction1793313780000,
+  CollectionLogs1793453112117,
+  JobRunTrigger1793487024000,
 ];

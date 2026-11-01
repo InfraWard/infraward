@@ -174,6 +174,31 @@ describe('resumen de los facts', () => {
     ).toMatchObject({ warnings: ['sin ss'], sudoersOutdated: false });
   });
 
+  it('contenedor de Podman: estado en Podman, pod, unidad de systemd y usuario rootless', () => {
+    expect(
+      labels(
+        containerItems({
+          docker: {
+            image: 'docker.io/library/nginx:alpine',
+            state: 'running',
+            engine: 'podman',
+            pod: 'mipod',
+            systemdUnit: 'uweb.service',
+            rootlessUser: 'alice',
+            rootlessUid: 1000,
+          },
+        }),
+      ),
+    ).toMatchObject({
+      'Estado en Podman': 'running',
+      Pod: 'mipod',
+      'Unidad de systemd': 'uweb.service',
+      'Usuario (rootless)': 'alice',
+    });
+    // En Docker no salen.
+    expect(labels(containerItems({ docker: { state: 'running', pod: 'x' } }))).not.toHaveProperty('Pod');
+  });
+
   it('volumen, red y montajes de Docker', () => {
     expect(
       labels(volumeItems({ docker: { name: 'datos', driver: 'local', scope: 'local', mountpoint: '/var/lib/docker/volumes/datos/_data' } })),

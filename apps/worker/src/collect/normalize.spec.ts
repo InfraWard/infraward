@@ -103,6 +103,7 @@ describe('normalizeCollection', () => {
       proxmox: null,
       plesk: null,
       docker: null,
+      podman: null,
     });
     expect(facts.infraward).toEqual({
       collectedAt: NOW.toISOString(),
@@ -133,6 +134,7 @@ describe('normalizeCollection', () => {
       proxmox: 'pve-manager/9.0.3/abcdef (running kernel: 6.14)',
       plesk: 'Product version: Plesk Obsidian 18.0.70',
       docker: '28.3.1',
+      podman: null,
     });
     expect(detectRoles(facts)).toEqual([
       'proxmox-node',
@@ -140,6 +142,58 @@ describe('normalizeCollection', () => {
       'docker-host',
     ]);
     expect(facts.infraward.warnings).toEqual([]);
+  });
+
+  it('Podman con podman-docker: podman-host, sin el aviso del demonio de Docker', () => {
+    // Salida real (Podman 5.4.2) de `docker info --format {{.ServerVersion}}` con el shim.
+    const raw = withSudo(debian(), {
+      docker: {
+        rc: 125,
+        stderr:
+          'Error: template: info:1:2: executing "info" at <.ServerVersion>: can\'t evaluate field ServerVersion in type system.infoReport',
+      },
+      podman: { rc: 0, stdout: '5.4.2\n' },
+      podman_users: { rc: 0, stdout: 'P 1000 1 1 1 1 2 alice\n' },
+    });
+    const facts = normalizeCollection(raw, NOW);
+    expect(facts.detected).toMatchObject({ docker: null, podman: '5.4.2' });
+    expect(detectRoles(facts)).toEqual(['podman-host']);
+    expect(facts.infraward.warnings).toEqual([]);
+  });
+
+  it('Podman rootless: avisa de lo que no se inventaría', () => {
+    const raw = withSudo(debian(), {
+      podman: { rc: 0, stdout: '5.4.2' },
+      podman_users: {
+        rc: 0,
+        stdout:
+          'P 1000 1 1 1 1 2 alice\nP 1001 1 0 1 0 0 bob\nP 1002 0 0 1 0 3 carol\nP 1003 0 1 1 1 0 dave\n',
+      },
+    });
+    const facts = normalizeCollection(raw, NOW);
+    const warnings = facts.infraward.warnings;
+    // Detectados por sí solos (habilitados o no), para la tarjeta de la ficha.
+    expect(facts.detected.podmanUsers).toEqual([
+      { uid: 1000, name: 'alice', enabled: true, socket: true, storage: true, linger: true, containers: 2 },
+      { uid: 1001, name: 'bob', enabled: true, socket: false, storage: true, linger: false, containers: 0 },
+      { uid: 1002, name: 'carol', enabled: false, socket: false, storage: true, linger: false, containers: 3 },
+      { uid: 1003, name: 'dave', enabled: false, socket: true, storage: true, linger: true, containers: 0 },
+    ]);
+    // dave no tiene contenedores en marcha: solo sale en la tarjeta, no como aviso.
+    expect(warnings).toHaveLength(2);
+    expect(warnings.join('\n')).toMatch(/Podman rootless de bob: sin socket activo/);
+    expect(warnings.join('\n')).toMatch(/3 contenedores de Podman rootless de carol sin inventariar/);
+    expect(warnings.join('\n')).not.toMatch(/alice/);
+  });
+
+  it('Podman con un sudoers anterior a la v8: rol podman-host (versión desconocida) y sin avisos de rootless', () => {
+    const denied = { rc: 64, stderr: 'infraward-query: rechazado: consulta desconocida: podman-version' };
+    const raw = withSudo(debian(), { podman: denied, podman_users: denied });
+    const facts = normalizeCollection(raw, NOW);
+    expect(facts.detected.podman).toBe('desconocida');
+    expect(detectRoles(facts)).toEqual(['podman-host']);
+    expect(facts.infraward.warnings.join('\n')).not.toMatch(/no responde|rootless/);
+    expect(facts.detected.podmanUsers).toBeUndefined();
   });
 
   it('sudo denegado: recolección parcial con avisos, sin fallar', () => {

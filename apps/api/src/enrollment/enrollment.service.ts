@@ -490,9 +490,11 @@ export class EnrollmentService {
   ): Promise<EnrollmentContract> {
     const repo = this.db.getRepository(Enrollment);
     try {
-      const job = await this.jobs.enqueue(JOB_NAMES.enrollmentVerify, {
-        enrollmentId,
-      });
+      const job = await this.jobs.enqueue(
+        JOB_NAMES.enrollmentVerify,
+        { enrollmentId },
+        { trigger: 'enrollment' },
+      );
       await repo.update({ id: enrollmentId }, { jobId: job.id });
     } catch (error) {
       this.logger.error(

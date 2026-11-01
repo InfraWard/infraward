@@ -414,6 +414,7 @@ describe('Inventario (e2e)', () => {
         runtimeDetail: null,
         openFindings: { UNKNOWN: 0, LOW: 0, MEDIUM: 0, HIGH: 0, CRITICAL: 0 },
         fixableFindings: { HIGH: 0, CRITICAL: 0 },
+        kernelNotRunningFindings: 0,
         sudoersOutdated: false,
         collectionWarnings: 0,
         duplicateOf: null,

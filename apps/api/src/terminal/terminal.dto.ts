@@ -1,7 +1,11 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
+  PODMAN_ENABLE_MAX_USERS,
+  PODMAN_USER_NAME,
+  TERMINAL_ACTION_KINDS,
   TERMINAL_CLOSE_REASONS,
   type AssetTerminalStatus,
+  type TerminalAction,
   type GatewayHeartbeatRequest,
   type GatewayHeartbeatResponse,
   type RedeemTerminalTicketRequest,
@@ -18,6 +22,7 @@ import {
 import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
+  ArrayMinSize,
   IsArray,
   IsBoolean,
   IsIn,
@@ -33,10 +38,37 @@ import {
   ValidateNested,
 } from 'class-validator';
 
+export class TerminalActionDto {
+  @ApiProperty({ enum: TERMINAL_ACTION_KINDS })
+  @IsIn(TERMINAL_ACTION_KINDS)
+  kind: TerminalAction['kind'];
+
+  @ApiProperty({
+    type: [String],
+    description: 'Usuarios de Podman rootless detectados en el servidor que se habilitan',
+  })
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(PODMAN_ENABLE_MAX_USERS)
+  @IsString({ each: true })
+  @Matches(PODMAN_USER_NAME, { each: true })
+  users: string[];
+}
+
 export class CreateTerminalSessionDto implements CreateTerminalSessionRequest {
   @ApiProperty({ format: 'uuid', description: 'Servidor, CT o contenedor' })
   @IsUUID()
   assetId: string;
+
+  @ApiPropertyOptional({
+    type: TerminalActionDto,
+    description:
+      'Comando fijo en lugar de la shell (terminal de solo lectura: se ve la salida, no se escribe)',
+  })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => TerminalActionDto)
+  action?: TerminalActionDto;
 }
 
 export class TerminalSessionTicketDto implements CreateTerminalSessionResponse {
@@ -153,6 +185,9 @@ export class RedeemedTerminalSessionDto implements RedeemTerminalTicketResponse 
 
   @ApiProperty({ example: 'infraward-admin' })
   account: string;
+
+  @ApiProperty({ type: TerminalActionDto, nullable: true })
+  action: TerminalAction | null;
 }
 
 export class TerminalCertificateRequestDto implements TerminalCertificateRequest {

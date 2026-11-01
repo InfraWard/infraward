@@ -24,6 +24,18 @@ import {
 } from './openbao-test-server.js';
 import { OpenBaoSecretProvider } from './openbao.provider.js';
 
+/** `ssh-keygen -Lf` del certificado: tipo, key_id, principales, validez y extensiones. */
+function inspectCert(cert: string): string {
+  const dir = mkdtempSync(join(tmpdir(), 'iw-cert-'));
+  try {
+    const file = join(dir, 'id-cert.pub');
+    writeFileSync(file, cert);
+    return execFileSync('ssh-keygen', ['-Lf', file]).toString();
+  } finally {
+    rmSync(dir, { recursive: true });
+  }
+}
+
 /** Integración contra un OpenBao real: KV v2, AppRole, política, renovación y revocación. */
 describe('OpenBaoSecretProvider contra OpenBao', () => {
   let server: OpenBaoTestServer;
@@ -193,18 +205,6 @@ describe('OpenBaoSecretProvider contra OpenBao', () => {
   });
 
   describe('CA SSH (motor ssh en modo CA)', () => {
-    /** `ssh-keygen -Lf` del certificado: tipo, key_id, principales, validez y extensiones. */
-    function inspectCert(cert: string): string {
-      const dir = mkdtempSync(join(tmpdir(), 'iw-cert-'));
-      try {
-        const file = join(dir, 'id-cert.pub');
-        writeFileSync(file, cert);
-        return execFileSync('ssh-keygen', ['-Lf', file]).toString();
-      } finally {
-        rmSync(dir, { recursive: true });
-      }
-    }
-
     it('firma una clave efímera: certificado de usuario, un principal, key_id, TTL y sin extensiones', async () => {
       const p = provider();
       const { publicKey } = generateSshKeyPair('efimera');

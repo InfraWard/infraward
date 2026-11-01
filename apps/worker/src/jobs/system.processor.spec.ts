@@ -5,6 +5,7 @@ import type { EnvironmentVariables } from '../config/env.validation.js';
 import type { TrivyRunner } from '../scan/trivy-runner.js';
 import type { IntelUpdater } from '../intel/intel-updater.js';
 import type { FindingPrioritizer } from '../intel/prioritizer.js';
+import type { AlertDelivery } from '../alerts/alert-delivery.js';
 import type { MetricSampler } from '../metrics/metric-sampler.js';
 import { SystemProcessor } from './system.processor.js';
 
@@ -42,6 +43,7 @@ describe('SystemProcessor', () => {
     {} as IntelUpdater,
     {} as FindingPrioritizer,
     metrics as unknown as MetricSampler,
+    {} as AlertDelivery,
   );
 
   it('metrics.sample: el del job scheduler encola otro (Actividad); el encolado, muestrea', async () => {

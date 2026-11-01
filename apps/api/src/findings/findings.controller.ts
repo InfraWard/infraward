@@ -1,4 +1,5 @@
 import {
+  Body,
   Controller,
   Get,
   HttpCode,
@@ -10,6 +11,7 @@ import {
 } from '@nestjs/common';
 import {
   ApiAcceptedResponse,
+  ApiBadRequestResponse,
   ApiCookieAuth,
   ApiConflictResponse,
   ApiForbiddenResponse,
@@ -21,12 +23,20 @@ import {
 import type {
   AssetFindingsPage,
   AssetVulnerabilitiesPage,
+  FindingAcceptanceResult,
   FindingSearchResult,
   Page,
   ScanAssetResponse,
   VulnerabilitySummary,
 } from '@infraward/shared-types';
+import { AuditCtx, type AuditActor } from '../audit/audit-context.decorator.js';
 import { Can } from '../auth/permissions.decorator.js';
+import {
+  AcceptFindingsDto,
+  FindingAcceptanceResultDto,
+  ReopenFindingsDto,
+} from './finding-acceptance.dto.js';
+import { FindingAcceptanceService } from './finding-acceptance.service.js';
 import {
   AssetFindingsPageDto,
   AssetVulnerabilitiesPageDto,
@@ -43,7 +53,45 @@ import { FindingsService } from './findings.service.js';
 @ApiUnauthorizedResponse()
 @Controller()
 export class FindingsController {
-  constructor(private readonly findings: FindingsService) {}
+  constructor(
+    private readonly findings: FindingsService,
+    private readonly acceptance: FindingAcceptanceService,
+  ) {}
+
+  /**
+   * «Aceptar el riesgo» de findings abiertos (por id o todos los de unos CVE): pasan a `accepted`
+   * con motivo y caducidad opcional (el worker los reabre al llegar). Salen de los recuentos de
+   * abiertos, pero siguen en el buscador de CVEs como afectados.
+   */
+  @Post('findings/accept')
+  @Can('findings.accept')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: FindingAcceptanceResultDto })
+  @ApiBadRequestResponse({ description: 'Motivo o caducidad inválidos' })
+  @ApiForbiddenResponse({ description: 'Sin el permiso necesario para su rol' })
+  @ApiNotFoundResponse()
+  @ApiConflictResponse({ description: 'Ninguno está abierto' })
+  accept(
+    @Body() body: AcceptFindingsDto,
+    @AuditCtx() actor: AuditActor,
+  ): Promise<FindingAcceptanceResult> {
+    return this.acceptance.accept(body, actor);
+  }
+
+  /** Reabre findings con el riesgo aceptado (por id o todos los de unos CVE). */
+  @Post('findings/reopen')
+  @Can('findings.accept')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: FindingAcceptanceResultDto })
+  @ApiForbiddenResponse({ description: 'Sin el permiso necesario para su rol' })
+  @ApiNotFoundResponse()
+  @ApiConflictResponse({ description: 'Ninguno tiene el riesgo aceptado' })
+  reopen(
+    @Body() body: ReopenFindingsDto,
+    @AuditCtx() actor: AuditActor,
+  ): Promise<FindingAcceptanceResult> {
+    return this.acceptance.reopen(body, actor);
+  }
 
   /**
    * Escanea con Trivy: el SBOM de un servidor con conexión o de un CT (copiando solo sus BDs de

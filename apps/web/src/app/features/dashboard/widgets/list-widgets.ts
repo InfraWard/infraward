@@ -281,7 +281,9 @@ export class ExpirationsWidget {
         @for (run of data().items; track run.id) {
           <li [attr.data-run]="run.id">
             <i class="bi {{ jobIcons[run.name] }}" aria-hidden="true"></i>
-            <strong>{{ jobLabels[run.name] }}</strong>
+            <a [routerLink]="['/activity', run.id]" class="dw-run" data-run-link
+              ><strong>{{ jobLabels[run.name] }}</strong></a
+            >
             @if (run.assetId) {
               <a [routerLink]="['/assets', run.assetId]">{{ run.assetName }}</a>
             } @else {

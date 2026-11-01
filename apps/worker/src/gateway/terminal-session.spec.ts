@@ -57,7 +57,7 @@ class FakePty implements PtyProcess {
   }
 }
 
-function setup(opened: () => Promise<void>) {
+function setup(opened: () => Promise<void>, readOnly = false) {
   const ws = new FakeWs();
   const pty = new FakePty();
   const lease = {
@@ -99,6 +99,7 @@ function setup(opened: () => Promise<void>) {
         connection: { host: '192.0.2.10', port: 22, user: 'admin' },
         pinned: 'pin',
         command: [],
+        readOnly,
       })),
     },
     ssh,
@@ -251,5 +252,27 @@ describe('TerminalSession: apertura', () => {
       's1',
       expect.objectContaining({ reason: 'exit', exitCode: 255 }),
     );
+  });
+});
+
+describe('TerminalSession: acción de solo lectura', () => {
+  it('ready con readOnly, la salida llega y lo que se teclea no llega al PTY (el tamaño sí)', async () => {
+    const { ws, pty } = setup(async () => undefined, true);
+    await flush();
+    pty.emit('== alice (uid 1000)\r\n');
+    await flush();
+    expect(ws.control()).toContainEqual({
+      type: 'ready',
+      sessionId: 's1',
+      asset: 'web-1',
+      account: 'admin',
+      readOnly: true,
+    });
+    ws.emit('message', Buffer.from('rm -rf /\n'), true);
+    ws.emit('message', Buffer.from(JSON.stringify({ type: 'resize', cols: 100, rows: 30 })), false);
+    pty.emit('Listo\r\n');
+    expect(pty.written).toEqual([]);
+    expect(pty.resize).toHaveBeenCalledWith(100, 30);
+    expect(ws.binary()).toEqual(['== alice (uid 1000)\r\n', 'Listo\r\n']);
   });
 });

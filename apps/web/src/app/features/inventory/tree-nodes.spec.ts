@@ -11,6 +11,7 @@ import {
   matchesQuickFilter,
   branchKeys,
   fixableLabel,
+  kernelNotRunningLabel,
   prefilter,
   quickFilter,
   quickFilterLabel,
@@ -92,8 +93,21 @@ describe('toTreeNodes', () => {
     });
     expect(fixableLabel(web1)).toBe('1 C · 3 H');
     const pve = toTreeNodes(forest)[0].data!;
-    expect(pve).toMatchObject({ worst: null, findingsSummary: '' });
+    expect(pve).toMatchObject({ worst: null, findingsSummary: '', kernelNotRunning: 0 });
     expect(fixableLabel(pve)).toBeNull();
+  });
+
+  it('los findings de kernels que no corren van aparte, con su frase', () => {
+    const [rocky] = toTreeNodes([
+      node('rocky', [], {
+        openFindings: { ...none, MEDIUM: 8 },
+        kernelNotRunningFindings: 1088,
+      }),
+    ]);
+    expect(rocky.data).toMatchObject({ worst: 'MEDIUM', kernelNotRunning: 1088 });
+    expect(kernelNotRunningLabel(1088)).toBe(
+      'Sin contar 1088 hallazgos de kernels instalados que no están en ejecución (ni sus cabeceras o herramientas).',
+    );
   });
 
   it('desaparecido o retirado: sin el último estado de ejecución; escaneo desactivado, marcado', () => {

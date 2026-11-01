@@ -83,8 +83,10 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((error: unknown) => {
+try {
+  await main();
+} catch (error: unknown) {
   // Solo el mensaje: nunca la entrada.
   Logger.error((error as Error).message, undefined, 'secrets:put');
   process.exitCode = 1;
-});
+}

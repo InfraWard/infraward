@@ -46,6 +46,22 @@
   white-space: nowrap;
 }
 
+.confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--p-message-warn-border-color, var(--p-content-border-color));
+  border-radius: 6px;
+  background: var(--p-message-warn-background, var(--p-content-background));
+
+  p {
+    margin: 0;
+  }
+}
+
 .frame {
   flex: 1;
   min-height: 0;

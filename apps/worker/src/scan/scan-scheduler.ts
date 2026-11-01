@@ -56,7 +56,7 @@ export const BACKFILL_SCAN_PRIORITY = 200;
  * Vida del lock de relleno de un host sin noticias de su escaneo (la réplica murió antes de
  * encolar el siguiente). Cada escaneo del relleno lo renueva al terminar.
  */
-const BACKFILL_LOCK_MS = 6 * 3600_000;
+const BACKFILL_LOCK_MS = 6 * 3_600_000;
 
 export function imageMetaOf(docker: DockerContainerFacts): ImageMeta {
   return {
@@ -319,7 +319,7 @@ export class ScanScheduler {
    * Alta o actualización de una imagen (asset `image` y su ficha, sin tocar su escaneo) y enlace
    * `instance_of` de los contenedores que la usan (sustituye el de la imagen anterior).
    */
-  async register(
+  register(
     meta: ImageMeta,
     containers: readonly ImageContainer[] = [],
   ): Promise<ContainerImage> {
@@ -467,7 +467,7 @@ export class ScanScheduler {
       }
       return;
     }
-    const every = hours * 3600_000;
+    const every = hours * 3_600_000;
     if (current && Number(current.every) === every) return;
     await this.sbomQueue.upsertJobScheduler(
       SBOM_REEVALUATE_ID,

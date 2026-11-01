@@ -167,7 +167,7 @@ export function parseInterfaces(json: string): ProxmoxInterface[] {
             a.prefix !== undefined ? `${ip}/${String(a.prefix)}` : ip;
           // PVE 9 usa `inet`/`inet6`; el agente de QEMU, `ipv4`/`ipv6`. Ante la duda, por la forma.
           const kind = String(a['ip-address-type'] ?? '');
-          const v6 = /6$/.test(kind) || (!kind && ip.includes(':'));
+          const v6 = kind.endsWith('6') || (!kind && ip.includes(':'));
           (v6 ? ipv6 : ipv4).push(cidr);
         }
       }
@@ -335,8 +335,7 @@ function failure(result: HostCommandResult): string {
   const line = result.stderr
     .split('\n')
     .map((l) => l.trim())
-    .filter(Boolean)
-    .at(-1);
+    .findLast(Boolean);
   return ` (código ${result.code})${line ? `: ${line.slice(0, 200)}` : ''}`;
 }
 

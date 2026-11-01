@@ -56,6 +56,7 @@ export class WorkerPool {
       [QUEUE_NAMES.hostScan]: scan,
       [QUEUE_NAMES.sbom]: scan,
       [QUEUE_NAMES.scan]: scan,
+      [QUEUE_NAMES.alerts]: system,
     };
   }
 
@@ -71,6 +72,7 @@ export class WorkerPool {
       SCAN_CONCURRENCY: this.config.get('SCAN_CONCURRENCY', { infer: true }),
       HOST_SCAN_CONCURRENCY: this.config.get('HOST_SCAN_CONCURRENCY', { infer: true }),
       SBOM_CONCURRENCY: this.config.get('SBOM_CONCURRENCY', { infer: true }),
+      ALERTS_CONCURRENCY: this.config.get('ALERTS_CONCURRENCY', { infer: true }),
     });
     if (this.config.get('SCAN_CONCURRENCY', { infer: true }) !== undefined)
       this.logger.warn(

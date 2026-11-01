@@ -1,8 +1,16 @@
-import { SSHD_AUTH_SCRIPT, type PrivilegedQueryName } from '@infraward/connectors';
+import { execFileSync } from 'node:child_process';
+import {
+  PODMAN_AS_USER_SCRIPT,
+  PODMAN_USERS_SCRIPT,
+  SSHD_AUTH_SCRIPT,
+  type PrivilegedQueryName,
+} from '@infraward/connectors';
 
 /**
  * Casos del ayudante de root (`infraward-query`, sudoers v4) que comparten el test unitario
- * (bash con binarios falsos) y el de integración (sudo y sudo-rs reales).
+ * (bash con binarios falsos) y el de integración (sudo y sudo-rs reales). `runuser` no está: en
+ * la integración es el de verdad (el test entra con él como `inventory` y el ayudante baja con él
+ * al usuario de Podman rootless); el unitario añade uno falso (`UNIT_HELPER_BINARIES`).
  */
 export const HELPER_BINARIES = [
   'dmidecode',
@@ -11,24 +19,42 @@ export const HELPER_BINARIES = [
   'pvesh',
   'pct',
   'docker',
+  'podman',
   'plesk',
   'nginx',
   'sshd',
 ];
 
+/** Los del unitario: sin root, `runuser` no puede cambiar de usuario y se finge. */
+export const UNIT_HELPER_BINARIES = [...HELPER_BINARIES, 'runuser'];
+
 /**
  * Lo que tienen que anotar los binarios falsos para una consulta: su comando real. Las de nginx
  * (v5) son `sh -c <filtro> sh <comando…>` y el sh es el de verdad (filtra en el servidor): se
- * anota el comando que envuelve (`nginx -T`, `docker exec <id> nginx -T`).
+ * anota el comando que envuelve (`nginx -T`, `docker exec <id> nginx -T`). `runuser`: falso en el
+ * unitario (se anota él) o el de verdad en la integración (se anota el podman que lanza).
  */
-export function expectedCalls(argv: string[]): string[] {
+export function expectedCalls(
+  argv: string[],
+  runuser: 'fake' | 'real' = 'fake',
+): string[] | null {
+  // Podman rootless (v8): `sh -c <script> sh <uid> env XDG_RUNTIME_DIR=… podman …`; el sh de
+  // verdad busca el nombre del uid y lo pasa a runuser.
+  if (argv[0] === 'sh' && argv[2] === PODMAN_AS_USER_SCRIPT)
+    return runuser === 'fake'
+      ? ['runuser', '-u', PODMAN_USER, '--', ...argv.slice(5)]
+      : argv.slice(7);
+  // podman-users (v8) solo lee /etc/infraward/podman-users y /proc: ningún binario falso.
+  if (argv[0] === 'sh' && argv[2] === PODMAN_USERS_SCRIPT) return null;
   // sshd-auth (v7) llama a `sshd -T` para el usuario root.
   if (argv[0] === 'sh' && argv[2] === SSHD_AUTH_SCRIPT)
     return ['sshd', '-T', '-C', 'user=root,host=localhost,addr=127.0.0.1'];
   // process-packages (v6) no envuelve ningún comando: de los binarios falsos solo llama a `ss`.
   if (argv[0] === 'sh' && argv[1] === '-c' && argv.length === 4)
     return ['ss', '-Htulpn'];
-  return argv[0] === 'sh' && argv[1] === '-c' ? argv.slice(4) : argv;
+  return argv[0] === 'sh' && argv[1] === '-c'
+    ? expectedCalls(argv.slice(4), runuser)
+    : argv;
 }
 
 /** Utilidades de verdad que usan los scripts que corren en el servidor (v5 y v6). */
@@ -42,7 +68,28 @@ export const HELPER_REAL_TOOLS = [
   'sed',
   'cat',
   'readlink',
+  'id',
+  'tr',
 ];
+
+/**
+ * Usuario de Podman rootless de las pruebas: `nobody` existe en todas partes, pero no con el mismo
+ * uid (65534 en Linux; 4294967294 en macOS): se pregunta. Los tests lo ponen en la lista de
+ * usuarios (`/etc/infraward/podman-users` o la copia del unitario).
+ */
+export const PODMAN_USER = 'nobody';
+export const PODMAN_UID = nobodyUid();
+/** El de `nobody` en los contenedores Debian y Ubuntu de la integración. */
+export const CONTAINER_PODMAN_UID = '65534';
+
+function nobodyUid(): string {
+  try {
+    const uid = execFileSync('id', ['-u', PODMAN_USER], { encoding: 'utf8' }).trim();
+    return /^[1-9][0-9]{0,9}$/.test(uid) ? uid : '65534';
+  } catch {
+    return '65534';
+  }
+}
 
 /**
  * Configuración de nginx con secretos que el filtro NUNCA deja salir del servidor: cabeceras,
@@ -115,6 +162,34 @@ export const SAMPLES: Record<PrivilegedQueryName, string[][]> = {
   'docker-nginx-routes': [[ID]],
   'process-packages': [[]],
   'sshd-auth': [[]],
+  'podman-version': [[]],
+  'podman-users': [[]],
+  'podman-ps': [['root'], [PODMAN_UID]],
+  'podman-inspect-containers': [
+    ['root', ID, 'c'.repeat(64)],
+    [PODMAN_UID, ID],
+  ],
+  'podman-pods': [['root'], [PODMAN_UID]],
+  'podman-images': [['root'], [PODMAN_UID]],
+  'podman-image-inspect': [
+    ['root', IMAGE],
+    [PODMAN_UID, IMAGE],
+  ],
+  'podman-volumes': [['root'], [PODMAN_UID]],
+  'podman-volume-inspect': [['root', 'datos', 'mi_vol.1-x']],
+  'podman-networks': [['root'], [PODMAN_UID]],
+  'podman-network-inspect': [
+    ['root', 'podman', 'red-app'],
+    [PODMAN_UID, 'podman'],
+  ],
+  'podman-save': [
+    ['root', IMAGE],
+    [PODMAN_UID, IMAGE],
+  ],
+  'podman-nginx-routes': [
+    ['root', ID],
+    [PODMAN_UID, ID],
+  ],
   'plesk-version': [[]],
   'plesk-domains': [[]],
   'plesk-aliases': [[]],
@@ -197,6 +272,29 @@ export const ATTACKS: [string, string[]][] = [
   ['docker-nginx-routes con opción', ['docker-nginx-routes', '-u']],
   ['docker-nginx-routes con dos ids', ['docker-nginx-routes', ID, ID]],
   ['docker-nginx-routes con comando', ['docker-nginx-routes', ID, 'cat', '/etc/shadow']],
+  // podman (v8): el primer argumento es el ámbito (root o el uid de un usuario de la lista).
+  ['podman sin ámbito', ['podman-ps']],
+  ['podman con ámbito vacío', ['podman-ps', '']],
+  ['podman con uid 0', ['podman-ps', '0']],
+  ['podman con uid con ceros', ['podman-ps', '0065534']],
+  ['podman con ruta de socket', ['podman-ps', '/run/user/0/podman/podman.sock']],
+  ['podman con url', ['podman-ps', 'unix:///run/podman/podman.sock']],
+  ['podman con opción de ámbito', ['podman-ps', '--remote']],
+  ['podman con argumento de más', ['podman-ps', 'root', '-a']],
+  ['podman de un uid fuera de la lista', ['podman-ps', '4242']],
+  ['podman inspect sin ids', ['podman-inspect-containers', 'root']],
+  ['podman inspect con opción', ['podman-inspect-containers', 'root', '--format', '{{.Config.Env}}']],
+  ['podman inspect sin ámbito', ['podman-inspect-containers', ID]],
+  ['podman image inspect con nombre', ['podman-image-inspect', 'root', 'nginx']],
+  ['podman red con ;', ['podman-network-inspect', 'root', 'podman;id']],
+  ['podman save -o', ['podman-save', 'root', '-o', '/etc/passwd']],
+  ['podman save con nombre', ['podman-save', 'root', 'nginx:latest']],
+  ['podman save sin ámbito', ['podman-save', IMAGE]],
+  ['podman save de más', ['podman-save', 'root', IMAGE, IMAGE]],
+  ['podman nginx sin id', ['podman-nginx-routes', 'root']],
+  ['podman nginx con comando', ['podman-nginx-routes', 'root', ID, 'cat', '/etc/shadow']],
+  ['podman-users con argumentos', ['podman-users', '/etc/shadow']],
+  ['podman-version con argumentos', ['podman-version', '--format', '{{.Host}}']],
   // pct-exec: el vmid se valida y el CT tiene que ser del nodo.
   ['pct-exec sin comando', ['pct-exec', '100']],
   ['pct-exec con vmid no numérico', ['pct-exec', '100;id', 'true']],
@@ -211,4 +309,5 @@ export const NODE_ONLY_ATTACKS = new Set([
   'pvesh de un guest de otro nodo',
   'pct-exec de un CT de otro nodo',
   'pct-exec de una VM',
+  'podman de un uid fuera de la lista',
 ]);

@@ -26,7 +26,12 @@ import {
   SEVERITY_TAG,
   type TagSeverity,
 } from '../../shared/labels';
-import { fixableLabel, toRow, type InventoryRow } from '../inventory/tree-nodes';
+import {
+  fixableLabel,
+  kernelNotRunningLabel,
+  toRow,
+  type InventoryRow,
+} from '../inventory/tree-nodes';
 import {
   certificateItems,
   collectionItems,
@@ -57,6 +62,7 @@ import { AssetProjectsCard } from './asset-projects';
 import { AssetPolicyBlock } from './asset-policy';
 import { AssetAccessCard } from './asset-access';
 import { AdminAccessControl } from './admin-access';
+import { detectedPodmanUsers, PodmanUsersCard } from './podman-users';
 import { AuthService } from '../../core/auth/auth.service';
 import { TERMINAL_ASSET_TYPES } from '@infraward/shared-types';
 
@@ -111,6 +117,7 @@ interface Link {
     DomainServicePathsCard,
     AssetAccessCard,
     AdminAccessControl,
+    PodmanUsersCard,
   ],
   templateUrl: './asset-overview.html',
   styleUrl: './asset-overview.scss',
@@ -140,6 +147,23 @@ export class AssetOverview {
       this.asset().status !== 'retired',
   );
 
+  /** Motor del bloque de volúmenes, redes e imágenes (Podman si no hay Docker). */
+  protected readonly engineLabel = computed(() => {
+    const detected = (this.asset().facts as { detected?: { docker?: unknown; podman?: unknown } })
+      ?.detected;
+    if (!detected?.docker && detected?.podman) return 'Podman';
+    if (detected?.docker && detected?.podman) return 'Docker y Podman';
+    return 'Docker';
+  });
+
+  /** «Usuarios de Podman»: servidores y CT con usuarios de Podman rootless detectados. */
+  protected readonly showPodmanUsers = computed(
+    () =>
+      ['server', 'lxc'].includes(this.asset().type) &&
+      this.asset().status !== 'retired' &&
+      detectedPodmanUsers(this.asset()).length > 0,
+  );
+
   protected readonly typeLabels: Readonly<Record<string, string>> = ASSET_TYPE_LABELS;
   protected readonly typeIcons: Readonly<Record<string, string>> = ASSET_TYPE_ICONS;
   protected readonly statusLabels: Readonly<Record<string, string>> = ASSET_STATUS_LABELS;
@@ -150,6 +174,7 @@ export class AssetOverview {
     RUNTIME_SEVERITY;
   protected readonly severityTag: Readonly<Record<string, TagSeverity>> = SEVERITY_TAG;
   protected readonly fixableLabel = fixableLabel;
+  protected readonly kernelNotRunningLabel = kernelNotRunningLabel;
   private readonly expiry = inject(ExpiryThresholds);
   /** Tipos a los que pueden apuntar registros DNS (A/AAAA a sus IPs). */
   protected readonly hasDomains = computed(() =>

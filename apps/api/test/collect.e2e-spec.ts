@@ -4,8 +4,12 @@ import type {
   Asset,
   EnqueueJobResponse,
   EnrollServerResponse,
+  JobRunLog,
+  JobRunSummary,
   JobStatus,
+  Page,
 } from '@infraward/shared-types';
+import { randomUUID } from 'node:crypto';
 import { DataSource } from 'typeorm';
 import { UsersService } from '../src/users/users.service.js';
 import {
@@ -43,6 +47,10 @@ describe('Recolección (e2e)', () => {
   /** Asset dado de alta (verificación simulada en la BD) en un puerto cerrado. */
   let asset: Asset;
   let pending: Asset;
+  /** Ejecución fallida de la primera recolección (con su log). */
+  let failedRunId: string;
+  /** Ejecución con un log caducado. */
+  let oldRunId: string;
 
   beforeAll(async () => {
     await prepareEnv('e2e_collect');
@@ -156,6 +164,20 @@ describe('Recolección (e2e)', () => {
     const status = (await request('GET', `/jobs/${job.id}`)).json<JobStatus>();
     expect(status).toMatchObject({ queue: 'collect', state: 'waiting' });
 
+    // Un log caducado (de hace 40 días) de una ejecución que sigue en el historial: el líder lo
+    // poda al arrancar (COLLECTION_LOG_RETENTION_DAYS, 30 por defecto) y deja la ejecución.
+    oldRunId = randomUUID();
+    await db.query(
+      `INSERT INTO job_runs (id, name, queue, asset_id, asset_name, state, created_at, started_at, finished_at)
+       VALUES ($1, 'asset.collect', 'collect', $2, 'e2e-collect', 'completed', now(), now(), now())`,
+      [oldRunId, asset.id],
+    );
+    await db.query(
+      `INSERT INTO job_run_logs (job_run_id, attempt, asset_id, entries, started_at, updated_at)
+       VALUES ($1, 1, $2, '[]', now() - interval '40 days', now() - interval '40 days')`,
+      [oldRunId, asset.id],
+    );
+
     // El worker la procesa: sin servidor, falla al leer la host key y el asset no cambia.
     worker = await startWorker({ SSH_CONNECT_TIMEOUT: '3' });
     const done = await finished(job.id);
@@ -164,6 +186,7 @@ describe('Recolección (e2e)', () => {
       /^No se pudo leer la host key de 127\.0\.0\.1:1/,
     );
     expect(done.events.at(-1)?.message).toMatch(/^Fallo: /);
+    failedRunId = job.id;
     const after = (await request('GET', `/assets/${asset.id}`)).json<Asset>();
     expect(after).toMatchObject({
       status: 'active',
@@ -180,11 +203,80 @@ describe('Recolección (e2e)', () => {
     await finished(again.json<EnqueueJobResponse>().id);
   });
 
+  it('historial de recolecciones del asset (como la ficha) y su log (con assets.operate)', async () => {
+    const url = `/assets/${asset.id}/runs`;
+    expect((await request('GET', url, undefined, null)).statusCode).toBe(401);
+    expect(
+      (await request('GET', '/assets/00000000-0000-4000-8000-000000000000/runs'))
+        .statusCode,
+    ).toBe(404);
+    // Un lector (sin permisos de escritura) ve lo mismo que en la ficha.
+    const list = await request('GET', url, undefined, viewerToken);
+    expect(list.statusCode).toBe(200);
+    const page = list.json<Page<JobRunSummary>>();
+    const failed = page.items.find((r) => r.id === failedRunId);
+    expect(failed).toMatchObject({
+      name: 'asset.collect',
+      state: 'failed',
+      hasLog: true,
+    });
+    expect(failed!.durationMs).toBeGreaterThanOrEqual(0);
+
+    // El log lleva el stderr de los servidores: un lector no lo ve.
+    expect(
+      (await request('GET', `${url}/${failedRunId}/log`, undefined, viewerToken)).statusCode,
+    ).toBe(403);
+
+    let log: JobRunLog | undefined;
+    // El último guardado del log llega al terminar el job (justo después del evento de fallo).
+    await waitFor(async () => {
+      const res = await request('GET', `${url}/${failedRunId}/log`);
+      expect(res.statusCode).toBe(200);
+      log = res.json<JobRunLog>();
+      return !!log.attempts[0]?.entries.some((e) => e.kind === 'result');
+    }, 10_000, () => `log sin resultado: ${JSON.stringify(log)}`);
+    expect(log!.run).toMatchObject({ id: failedRunId, state: 'failed' });
+    const [attempt] = log!.attempts;
+    expect(attempt).toMatchObject({ attempt: 1, truncated: false });
+    const messages = attempt!.entries.map((e) => `${e.level} ${e.kind} ${e.message}`);
+    expect(messages[0]).toMatch(/^info step asset\.collect en .+ \(intento 1\)$/);
+    expect(messages).toContainEqual(
+      expect.stringMatching(/^(info|warn) command ssh-keyscan 127\.0\.0\.1:1$/),
+    );
+    expect(messages.at(-1)).toMatch(/^error result Fallido: No se pudo leer la host key/);
+    const keyscan = attempt!.entries.find((e) => e.kind === 'command');
+    expect(keyscan!.durationMs).toBeGreaterThanOrEqual(0);
+
+    // La ejecución debe ser de ese asset; si no, 404 (aunque exista).
+    expect(
+      (await request('GET', `/assets/${pending.id}/runs/${failedRunId}/log`)).statusCode,
+    ).toBe(404);
+    expect((await request('GET', `${url}/no-uuid/log`)).statusCode).toBe(400);
+  });
+
+  it('el líder poda los logs caducados y deja la ejecución', async () => {
+    await waitFor(async () => {
+      const rows: unknown[] = await db.query(
+        'SELECT 1 FROM job_run_logs WHERE job_run_id = $1',
+        [oldRunId],
+      );
+      return rows.length === 0;
+    }, 15_000, () => `log caducado sin podar\n${worker?.output.join('')}`);
+    const res = await request('GET', `/assets/${asset.id}/runs/${oldRunId}/log`);
+    expect(res.statusCode).toBe(200);
+    expect(res.json<JobRunLog>()).toMatchObject({
+      run: { id: oldRunId, hasLog: false },
+      attempts: [],
+    });
+  });
+
   it('aparece en OpenAPI', async () => {
     const spec = (await app.inject({ url: '/openapi.json' })).json<{
       paths: Record<string, unknown>;
     }>();
     expect(spec.paths['/assets/{id}/collect']).toBeDefined();
+    expect(spec.paths['/assets/{id}/runs']).toBeDefined();
+    expect(spec.paths['/assets/{id}/runs/{runId}/log']).toBeDefined();
   });
 
   it('la clave privada no aparece en respuestas ni logs (API y worker)', () => {

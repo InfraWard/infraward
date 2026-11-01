@@ -1,13 +1,14 @@
-import type {
-  AssetRelationType,
-  AssetType,
-  DockerContainerFacts,
-  DockerContainerNetwork,
-  DockerMount,
-  DockerNetworkFacts,
-  DockerNetworkSubnet,
-  DockerPortBinding,
-  DockerVolumeFacts,
+import {
+  byCodeUnit,
+  type AssetRelationType,
+  type AssetType,
+  type DockerContainerFacts,
+  type DockerContainerNetwork,
+  type DockerMount,
+  type DockerNetworkFacts,
+  type DockerNetworkSubnet,
+  type DockerPortBinding,
+  type DockerVolumeFacts,
 } from '@infraward/shared-types';
 import {
   DiscoveryError,
@@ -71,7 +72,8 @@ type ParsedContainer = NonNullable<ReturnType<typeof parseContainer>>;
  * del host, enlaces `mounts` y `attached_to` desde los contenedores, y las imágenes del host (las
  * registra el worker con `stores`). Solo lectura y siempre con los subcomandos que permite el
  * ayudante de root (consultas `docker-*`, sudoers v4). Si no deja listar volúmenes o redes, son los que
- * usan los contenedores y su listado es parcial (nada de ellos pasa a `missing`).
+ * usan los contenedores y su listado es parcial (nada de ellos pasa a `missing`). El listado lo
+ * hace `EngineLister`, que comparte con Podman.
  */
 export class DockerDiscoverer implements Discoverer {
   readonly role = 'docker-host';
@@ -84,43 +86,134 @@ export class DockerDiscoverer implements Discoverer {
 
   constructor(private readonly now: () => Date = () => new Date()) {}
 
-  async discover(
-    parent: DiscoveryParent,
-    host: HostExec,
-  ): Promise<DiscoveryListing> {
+  discover(parent: DiscoveryParent, host: HostExec): Promise<DiscoveryListing> {
+    return new EngineLister(dockerEngine(parent.id), this.now).list(host);
+  }
+
+  collectTarget(): { target: null; reason: string } {
+    return {
+      target: null,
+      reason:
+        'Los contenedores, volúmenes y redes no se recogen con Ansible: sus datos vienen del host Docker',
+    };
+  }
+
+}
+
+/** Consultas del ayudante que usa `EngineLister`, por su papel. */
+export interface EngineQueries {
+  ps: PrivilegedQueryName;
+  inspect: PrivilegedQueryName;
+  images: PrivilegedQueryName;
+  imageInspect: PrivilegedQueryName;
+  volumes: PrivilegedQueryName;
+  volumeInspect: PrivilegedQueryName;
+  networks: PrivilegedQueryName;
+  networkInspect: PrivilegedQueryName;
+  nginxRoutes: PrivilegedQueryName;
+}
+
+/**
+ * Un motor de contenedores tal como lo lista `EngineLister`: Docker o un ámbito de Podman (root o
+ * un usuario rootless). Las plantillas de cada motor dan el mismo JSON, así que el listado y el
+ * análisis son los mismos; cambian las consultas, sus argumentos fijos y las claves naturales.
+ */
+export interface ContainerEngine {
+  /** Para los mensajes: «No se pudo listar Docker». */
+  title: string;
+  /** Para los avisos: `docker`, `podman`, `podman (alice)`. */
+  label: string;
+  queries: EngineQueries;
+  /** Argumentos fijos delante de los de cada consulta (en Podman, el ámbito: `root` o un uid). */
+  args: readonly string[];
+  containerKey(name: string): string;
+  volumeKey(name: string): string;
+  networkKey(name: string): string;
+  /** Nombre del hijo en el inventario (en Podman rootless lleva delante el usuario). */
+  childName(name: string): string;
+  /** Campos que se añaden a `facts.docker` de cada hijo (motor y usuario de Podman). */
+  marker: Record<string, unknown>;
+  /** Contenedores que no se inventarían (el contenedor «infra» de un pod de Podman). */
+  skip?(line: Record<string, unknown>): boolean;
+  /** Campos propios del motor para `facts.docker` de un contenedor (pod, unidad de systemd). */
+  extra?(line: Record<string, unknown>): Partial<DockerContainerFacts>;
+}
+
+/** Docker: las consultas `docker-*` sin argumentos fijos. */
+export function dockerEngine(hostAssetId: string): ContainerEngine {
+  return {
+    title: 'Docker',
+    label: 'docker',
+    queries: {
+      ps: 'docker-ps',
+      inspect: 'docker-inspect-containers',
+      images: 'docker-images',
+      imageInspect: 'docker-image-inspect',
+      volumes: 'docker-volumes',
+      volumeInspect: 'docker-volume-inspect',
+      networks: 'docker-networks',
+      networkInspect: 'docker-network-inspect',
+      nginxRoutes: 'docker-nginx-routes',
+    },
+    args: [],
+    containerKey: (name) => dockerNaturalKey(hostAssetId, name),
+    volumeKey: (name) => dockerVolumeKey(hostAssetId, name),
+    networkKey: (name) => dockerNetworkKey(hostAssetId, name),
+    childName: (name) => name,
+    marker: {},
+  };
+}
+
+/** Listado de un motor de contenedores (Docker o un ámbito de Podman): ver `DockerDiscoverer`. */
+export class EngineLister {
+  constructor(
+    private readonly engine: ContainerEngine,
+    private readonly now: () => Date = () => new Date(),
+  ) {}
+
+  async list(host: HostExec): Promise<DiscoveryListing> {
+    const { engine } = this;
     const warnings: string[] = [];
     let complete = true;
 
-    const ps = await host.query({ name: 'docker-ps' });
+    const ps = await this.query(host, 'ps');
     if (ps.code !== 0)
       throw new DiscoveryError(
-        `No se pudo listar Docker: docker ps falló${failure(ps)}`,
+        `No se pudo listar ${engine.title}: ${engine.label} ps falló${failure(ps)}`,
       );
     const ids = lines(ps.stdout);
     if (ids.some((id) => !CONTAINER_ID.test(id)))
-      throw new DiscoveryError('Respuesta de docker ps no válida');
+      throw new DiscoveryError(`Respuesta de ${engine.label} ps no válida`);
 
     const containers: ParsedContainer[] = [];
+    const extras = new Map<string, Partial<DockerContainerFacts>>();
+    let skipped = 0;
     if (ids.length > 0) {
-      const inspect = await inspectAll(host, 'docker-inspect-containers', ids);
+      const inspect = await this.inspectAll(host, 'inspect', ids);
       // Un contenedor borrado entre `ps` e `inspect` hace fallar el comando pero el resto sale:
       // se usa lo que haya y el listado deja de ser completo (no se marca nada como missing).
       if (inspect.code !== 0) {
         complete = false;
-        warnings.push(`docker inspect falló${failure(inspect)}`);
+        warnings.push(`${engine.label} inspect falló${failure(inspect)}`);
       }
       for (const line of lines(inspect.stdout)) {
+        const raw = parseObject(line);
+        if (raw && engine.skip?.(raw)) {
+          skipped++;
+          continue;
+        }
         const parsed = parseContainer(line);
         if (!parsed) {
           complete = false;
           warnings.push(
-            'docker inspect devolvió un contenedor que no se entiende',
+            `${engine.label} inspect devolvió un contenedor que no se entiende`,
           );
           continue;
         }
         containers.push(parsed);
+        if (raw && engine.extra) extras.set(parsed.id, engine.extra(raw));
       }
-      if (containers.length < ids.length) complete = false;
+      if (containers.length + skipped < ids.length) complete = false;
     }
 
     const hostImages = await this.hostImages(
@@ -146,16 +239,17 @@ export class DockerDiscoverer implements Discoverer {
         platform: image?.platform ?? null,
         imageSizeBytes: image?.size ?? null,
         ...(proxies.has(c.id) && { proxy: proxies.get(c.id) ?? null }),
+        ...extras.get(c.id),
         discoveredAt,
       };
-      const naturalKey = dockerNaturalKey(parent.id, c.name);
+      const naturalKey = engine.containerKey(c.name);
       seen.add(seenKey('container', naturalKey));
       children.push({
         type: 'container',
-        name: c.name,
+        name: engine.childName(c.name),
         naturalKey,
         aliases: [],
-        facts: { docker: facts },
+        facts: { docker: { ...facts, ...engine.marker } },
         collect: false,
       });
       const from = { type: 'container' as const, naturalKey };
@@ -166,7 +260,7 @@ export class DockerDiscoverer implements Discoverer {
             from,
             to: {
               type: 'volume',
-              naturalKey: dockerVolumeKey(parent.id, m.name),
+              naturalKey: engine.volumeKey(m.name),
             },
           });
       for (const n of c.networks)
@@ -175,7 +269,7 @@ export class DockerDiscoverer implements Discoverer {
           from,
           to: {
             type: 'network',
-            naturalKey: dockerNetworkKey(parent.id, n.name),
+            naturalKey: engine.networkKey(n.name),
           },
         });
     }
@@ -193,7 +287,7 @@ export class DockerDiscoverer implements Discoverer {
     for (const kind of ['volume', 'network'] as const) {
       const listed = await this.listNames(host, kind, warnings);
       if (!listed.complete) partialTypes.push(kind);
-      const names = [...new Set([...listed.names, ...used[kind]])].sort();
+      const names = [...new Set([...listed.names, ...used[kind]])].sort(byCodeUnit);
       const details = await this.inspectNames(host, kind, names, warnings);
       if (details.size < names.length && !partialTypes.includes(kind))
         partialTypes.push(kind);
@@ -202,15 +296,15 @@ export class DockerDiscoverer implements Discoverer {
         if (!facts) continue;
         const naturalKey =
           kind === 'volume'
-            ? dockerVolumeKey(parent.id, name)
-            : dockerNetworkKey(parent.id, name);
+            ? engine.volumeKey(name)
+            : engine.networkKey(name);
         seen.add(seenKey(kind, naturalKey));
         children.push({
           type: kind,
-          name,
+          name: engine.childName(name),
           naturalKey,
           aliases: [],
-          facts: { docker: { ...facts, discoveredAt } },
+          facts: { docker: { ...facts, ...engine.marker, discoveredAt } },
           collect: false,
         });
       }
@@ -234,7 +328,7 @@ export class DockerDiscoverer implements Discoverer {
 
   /**
    * Rutas de los contenedores de nginx o Nginx Proxy Manager en marcha (QoL-5b, sudoers v5):
-   * `docker exec <id> nginx -T` filtrado en el servidor. Sin la v5 (denegado) o si falla, null:
+   * `docker exec <id> nginx -T` (o `podman exec`) filtrado en el servidor. Sin la v5 (denegado) o si falla, null:
    * el listado sigue completo y el camino de los dominios se corta ahí.
    */
   private async nginxProxies(
@@ -246,7 +340,7 @@ export class DockerDiscoverer implements Discoverer {
     for (const c of containers) {
       const kind = nginxImageKind(c.image);
       if (!kind || c.state !== 'running') continue;
-      const r = await host.query({ name: 'docker-nginx-routes', args: [c.id] });
+      const r = await this.query(host, 'nginxRoutes', [c.id]);
       if (r.code === 0) {
         out.set(c.id, parseNginxRoutes(r.stdout, kind, this.now()));
         continue;
@@ -258,14 +352,6 @@ export class DockerDiscoverer implements Discoverer {
     return out;
   }
 
-  collectTarget(): { target: null; reason: string } {
-    return {
-      target: null,
-      reason:
-        'Los contenedores, volúmenes y redes no se recogen con Ansible: sus datos vienen del host Docker',
-    };
-  }
-
   /**
    * Imágenes del host (`docker images`) con sus metadatos, más las de los contenedores (por si
    * alguna no sale en el listado). `complete` solo si `docker images` respondió y se leyeron todas.
@@ -275,13 +361,13 @@ export class DockerDiscoverer implements Discoverer {
     containerImages: string[],
     warnings: string[],
   ): Promise<{ images: HostImage[]; complete: boolean }> {
-    const ls = await host.query({ name: 'docker-images' });
+    const ls = await this.query(host, 'images');
     let complete = ls.code === 0;
-    if (!complete) warnings.push(`docker images falló${failure(ls)}`);
+    if (!complete) warnings.push(`${this.engine.label} images falló${failure(ls)}`);
     const listed = ls.code === 0 ? lines(ls.stdout) : [];
     if (listed.some((id) => !IMAGE_ID.test(id))) {
       complete = false;
-      warnings.push('Respuesta de docker images no válida');
+      warnings.push(`Respuesta de ${this.engine.label} images no válida`);
     }
     const ids = [
       ...new Set([
@@ -305,9 +391,9 @@ export class DockerDiscoverer implements Discoverer {
   ): Promise<Map<string, ImageInfo>> {
     const images = new Map<string, ImageInfo>();
     if (imageIds.length === 0) return images;
-    const result = await inspectAll(host, 'docker-image-inspect', imageIds);
+    const result = await this.inspectAll(host, 'imageInspect', imageIds);
     if (result.code !== 0)
-      warnings.push(`docker image inspect falló${failure(result)}`);
+      warnings.push(`${this.engine.label} image inspect falló${failure(result)}`);
     for (const line of lines(result.stdout)) {
       const e = parseObject(line);
       if (!e || typeof e.id !== 'string' || !IMAGE_ID.test(e.id)) continue;
@@ -336,18 +422,19 @@ export class DockerDiscoverer implements Discoverer {
     kind: 'volume' | 'network',
     warnings: string[],
   ): Promise<{ names: string[]; complete: boolean }> {
-    const result = await host.query({
-      name: kind === 'volume' ? 'docker-volumes' : 'docker-networks',
-    });
+    const result = await this.query(
+      host,
+      kind === 'volume' ? 'volumes' : 'networks',
+    );
     if (result.code !== 0) {
       if (!deniedBySudo(result))
-        warnings.push(`docker ${kind} ls falló${failure(result)}`);
+        warnings.push(`${this.engine.label} ${kind} ls falló${failure(result)}`);
       return { names: [], complete: false };
     }
     const names = lines(result.stdout);
     const pattern = kind === 'volume' ? VOLUME_NAME : NETWORK_NAME;
     if (names.some((n) => !pattern.test(n))) {
-      warnings.push(`Respuesta de docker ${kind} ls no válida`);
+      warnings.push(`Respuesta de ${this.engine.label} ${kind} ls no válida`);
       return { names: names.filter((n) => pattern.test(n)), complete: false };
     }
     return { names, complete: true };
@@ -367,19 +454,38 @@ export class DockerDiscoverer implements Discoverer {
       Omit<DockerVolumeFacts | DockerNetworkFacts, 'discoveredAt'>
     >();
     if (names.length === 0) return found;
-    const result = await inspectAll(
+    const result = await this.inspectAll(
       host,
-      kind === 'volume' ? 'docker-volume-inspect' : 'docker-network-inspect',
+      kind === 'volume' ? 'volumeInspect' : 'networkInspect',
       names,
     );
     // Uno borrado entretanto hace fallar el comando; el resto sale.
     if (result.code !== 0)
-      warnings.push(`docker inspect --type ${kind} falló${failure(result)}`);
+      warnings.push(`${this.engine.label} inspect --type ${kind} falló${failure(result)}`);
     for (const line of lines(result.stdout)) {
       const parsed = kind === 'volume' ? parseVolume(line) : parseNetwork(line);
       if (parsed) found.set(parsed.name, parsed);
     }
     return found;
+  }
+
+  private query(
+    host: HostExec,
+    role: keyof EngineQueries,
+    args: readonly string[] = [],
+  ): Promise<HostCommandResult> {
+    return host.query({
+      name: this.engine.queries[role],
+      args: [...this.engine.args, ...args],
+    });
+  }
+
+  private inspectAll(
+    host: HostExec,
+    role: keyof EngineQueries,
+    args: readonly string[],
+  ): Promise<HostCommandResult> {
+    return inspectAll(host, this.engine.queries[role], args, this.engine.args);
   }
 }
 
@@ -391,10 +497,11 @@ async function inspectAll(
   host: HostExec,
   name: PrivilegedQueryName,
   args: readonly string[],
+  fixed: readonly string[] = [],
 ): Promise<HostCommandResult> {
   const all: HostCommandResult = { code: 0, stdout: '', stderr: '' };
   for (const part of chunks(args)) {
-    const r = await host.query({ name, args: part });
+    const r = await host.query({ name, args: [...fixed, ...part] });
     all.stdout += r.stdout;
     all.stderr += r.stderr;
     if (all.code === 0) all.code = r.code;

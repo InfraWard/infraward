@@ -31,21 +31,21 @@ import {
  * El ayudante (`ansible/enroll/enroll.sh.tmpl`) y el playbook lo llevan tal cual (un test lo
  * compara). Sin comillas simples dentro del awk ni `{{`, `{%` o `{#` (lo pasa Ansible).
  */
-export const NGINX_ROUTES_SCRIPT = `out=$("$@" 2>/dev/null)
+export const NGINX_ROUTES_SCRIPT = String.raw`out=$("$@" 2>/dev/null)
 rc=$?
 if [ "$rc" -ne 0 ]; then
   echo "infraward: nginx -T falló ($rc)" >&2
   exit 3
 fi
-printf '%s\\n' "$out" | awk '
+printf '%s\n' "$out" | awk '
 function emit(s) { if (++cnt <= 20000) print s }
-function words(s) { gsub(/[ \\t\\r]+/, " ", s); sub(/^ /, "", s); sub(/ $/, "", s); return split(s, W, " ") }
+function words(s) { gsub(/[ \t\r]+/, " ", s); sub(/^ /, "", s); sub(/ $/, "", s); return split(s, W, " ") }
 function unquote(t,   f) {
   f = substr(t, 1, 1)
-  if ((f == "\\"" || f == SQ) && length(t) >= 2 && substr(t, length(t), 1) == f) t = substr(t, 2, length(t) - 2)
+  if ((f == "\"" || f == SQ) && length(t) >= 2 && substr(t, length(t), 1) == f) t = substr(t, 2, length(t) - 2)
   return t
 }
-function safe(t) { t = unquote(t); return (t ~ /^[]\\/A-Za-z0-9._:*~^$=+[-]+$/) ? t : "" }
+function safe(t) { t = unquote(t); return (t ~ /^[]\/A-Za-z0-9._:*~^$=+[-]+$/) ? t : "" }
 function inside(kind,   i) { for (i = d; i > 0; i--) if (B[i] == kind) return 1; return 0 }
 function blk_open(s,   n, k, v, top) {
   n = words(s); k = (n > 0) ? W[1] : ""
@@ -73,7 +73,7 @@ function stmt(s,   n, k, i, v, o) {
     for (i = 2; i <= n && i <= 41; i++) { v = safe(W[i]); if (v != "") o = o " " v }
     if (o != "N") emit(o)
   } else if ((k == "proxy_pass" || k == "grpc_pass" || k == "fastcgi_pass" || k == "uwsgi_pass") && n >= 2) {
-    v = unquote(W[2]); sub(/:\\/\\/[^\\/]*@/, "://", v); v = safe(v)
+    v = unquote(W[2]); sub(/:\/\/[^\/]*@/, "://", v); v = safe(v)
     if (v != "") emit("P " k " " v)
   } else if (k == "set" && n >= 3 && (W[2] == "$server" || W[2] == "$port" || W[2] == "$forward_scheme")) {
     v = safe(W[3]); if (v != "") emit("V " W[2] " " v)
@@ -84,8 +84,8 @@ BEGIN { SQ = sprintf("%c", 39); d = 0; buf = "" }
 {
   line = $0
   sub(/#.*/, "", line)
-  gsub(/[{};]/, "\\n&\\n", line)
-  n = split(line, parts, "\\n")
+  gsub(/[{};]/, "\n&\n", line)
+  n = split(line, parts, "\n")
   for (i = 1; i <= n; i++) {
     p = parts[i]
     if (p == ";") { stmt(buf); buf = "" }

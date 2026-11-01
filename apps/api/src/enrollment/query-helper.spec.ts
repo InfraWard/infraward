@@ -14,6 +14,7 @@ import { join } from 'node:path';
 import {
   expandQuery,
   NGINX_ROUTES_SCRIPT,
+  PODMAN_USERS_SCRIPT,
   PRIVILEGED_QUERIES,
   PROCESS_PACKAGES_SCRIPT,
   SSHD_AUTH_SCRIPT,
@@ -25,10 +26,12 @@ import {
 import {
   ATTACKS,
   expectedCalls,
-  HELPER_BINARIES,
+  UNIT_HELPER_BINARIES,
   HELPER_REAL_TOOLS,
   NGINX_SECRET_CONFIG,
   NODE_ONLY_ATTACKS,
+  PODMAN_UID,
+  PODMAN_USER,
   PVE_FILES,
   SAMPLES,
 } from '../../test/support/query-helper-cases.js';
@@ -46,6 +49,7 @@ describe('Ayudante de root (infraward-query)', () => {
   let dir: string;
   let helper: string;
   let log: string;
+  let runUser: string;
 
   beforeAll(() => {
     dir = mkdtempSync(join(tmpdir(), 'infraward-query-'));
@@ -56,7 +60,7 @@ describe('Ayudante de root (infraward-query)', () => {
     // Binarios falsos: anotan su nombre y sus argumentos separados por NUL. nginx (y docker, por
     // `docker exec … nginx -T`) imprimen además la configuración de prueba si existe (sin cat:
     // el PATH solo tiene los falsos).
-    for (const name of HELPER_BINARIES) {
+    for (const name of UNIT_HELPER_BINARIES) {
       const path = join(bin, name);
       writeFileSync(
         path,
@@ -85,12 +89,32 @@ describe('Ayudante de root (infraward-query)', () => {
       'export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin';
     expect(source).toContain(path);
     expect(source).toContain('\nPVE_DIR=/etc/pve\n');
+    // Podman rootless (v8): la lista de usuarios es una copia con `nobody`; los sockets, los de
+    // verdad (/run/user/<uid>, que no hace falta que existan: el podman es falso).
+    const users = join(dir, 'podman-users');
+    writeFileSync(users, `# prueba\n${PODMAN_USER}\n`);
+    expect(source).toContain('\nPODMAN_USERS=/etc/infraward/podman-users\n');
+    expect(source).toContain('\nRUN_USER=/run/user\n');
     helper = join(dir, 'infraward-query');
     writeFileSync(
       helper,
       source!
         .replace(path, `export PATH=${bin}`)
-        .replace('\nPVE_DIR=/etc/pve\n', `\nPVE_DIR=${pve}\n`),
+        .replace('\nPVE_DIR=/etc/pve\n', `\nPVE_DIR=${pve}\n`)
+        .replace(
+          '\nPODMAN_USERS=/etc/infraward/podman-users\n',
+          `\nPODMAN_USERS=${users}\n`,
+        ),
+    );
+    // Otra copia con /run/user en el directorio de la prueba (para los enlaces).
+    runUser = join(dir, 'run-user');
+    mkdirSync(runUser);
+    writeFileSync(
+      join(dir, 'infraward-query-run'),
+      readFileSync(helper, 'utf8').replace(
+        '\nRUN_USER=/run/user\n',
+        `\nRUN_USER=${runUser}\n`,
+      ),
     );
   });
 
@@ -175,6 +199,34 @@ describe('Ayudante de root (infraward-query)', () => {
     expect(heredoc('NGINX')).toBe(NGINX_ROUTES_SCRIPT);
     expect(heredoc('PROCS')).toBe(PROCESS_PACKAGES_SCRIPT);
     expect(heredoc('SSHD')).toBe(SSHD_AUTH_SCRIPT);
+    expect(heredoc('PODUSERS')).toBe(PODMAN_USERS_SCRIPT);
+  });
+
+  it('podman rootless: rechaza el socket (o su directorio) si es un enlace', () => {
+    const run = (args: string[]) => {
+      rmSync(log, { force: true });
+      const r = spawnSync('bash', [join(dir, 'infraward-query-run'), ...args], {
+        encoding: 'utf8',
+      });
+      return { code: r.status, stderr: r.stderr, called: existsSync(log) };
+    };
+    const home = join(runUser, PODMAN_UID);
+    const ok = run(['podman-ps', PODMAN_UID]);
+    expect(ok.code, ok.stderr).toBe(0);
+    expect(ok.called).toBe(true);
+    // El directorio del usuario, el de podman y el socket, cada uno como enlace al de root.
+    const root = join(dir, 'root-podman');
+    mkdirSync(root, { recursive: true });
+    for (const link of [home, join(home, 'podman'), join(home, 'podman', 'podman.sock')]) {
+      rmSync(home, { recursive: true, force: true });
+      mkdirSync(join(link, '..'), { recursive: true });
+      symlinkSync(root, link);
+      const r = run(['podman-ps', PODMAN_UID]);
+      expect(r.code, link).toBe(QUERY_REJECTED_EXIT);
+      expect(r.stderr).toMatch(/es un enlace/);
+      expect(r.called).toBe(false);
+    }
+    rmSync(home, { recursive: true, force: true });
   });
 
   it.each(ATTACKS)('rechaza %s (64, sin ejecutar nada)', (_name, args) => {

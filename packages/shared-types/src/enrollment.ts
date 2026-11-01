@@ -22,8 +22,12 @@ export const ENROLL_SSH_USER = 'inventory';
  * - v7: `sshd-auth` (`sshd -T` filtrado en el propio servidor: solo `PermitRootLogin`,
  *   `PasswordAuthentication` y `KbdInteractiveAuthentication`) para el aviso de login de root o
  *   por contraseña (QoL-7).
+ * - v8: consultas `podman-*` (contenedores, imágenes, volúmenes, redes y pods de Podman como root
+ *   y, por su socket, de los usuarios rootless de `/etc/infraward/podman-users`; `podman save`
+ *   para escanear las imágenes) y `podman-users` (usuarios de esa lista y contenedores rootless
+ *   de otros usuarios, para avisar de los que no se ven).
  */
-export const SUDOERS_VERSION = 7;
+export const SUDOERS_VERSION = 8;
 
 /**
  * Qué pasa si al servidor le falta una capacidad: `outdated` = aviso «sudoers desactualizado»
@@ -62,6 +66,15 @@ export const SUDOERS_CAPABILITIES = {
     roles: ['docker-host'],
     onMissing: 'outdated',
     description: 'imágenes sin escanear con Trivy (hace falta docker save)',
+  },
+  // v8: Podman (rootful y rootless de los usuarios de la lista). Con un sudoers anterior el
+  // ayudante rechaza las consultas `podman-*`: el host no se lista.
+  podman: {
+    version: 8,
+    roles: ['podman-host'],
+    onMissing: 'outdated',
+    description:
+      'contenedores, imágenes, volúmenes y redes de Podman (y el escaneo de sus imágenes)',
   },
   plesk: {
     version: 4,
@@ -439,11 +452,11 @@ export interface EnrollmentProgress {
 }
 
 /** Estados finales (`unknown`: ya no está en Redis, retención agotada). */
-const FINISHED_JOB_STATES: readonly JobState[] = [
+const FINISHED_JOB_STATES: ReadonlySet<JobState> = new Set<JobState>([
   'completed',
   'failed',
   'unknown',
-];
+]);
 
 /** Paso del stepper según el enrolamiento y los jobs que encadena la verificación. */
 export function enrollmentPhase(
@@ -461,7 +474,7 @@ export function enrollmentPhase(
       return 'cancelled';
     case 'verified': {
       const running = jobs.filter(
-        (j) => !FINISHED_JOB_STATES.includes(j.state),
+        (j) => !FINISHED_JOB_STATES.has(j.state),
       );
       // El enrolamiento se marca verificado antes de que el job encole la recolección: hasta
       // que termina, sigue «conectando» (si no, se vería «listo» un instante).

@@ -87,7 +87,7 @@ export class TerminalController {
     @CurrentSession() session: RequestSession | undefined,
     @AuditCtx() actor: AuditActor,
   ): Promise<CreateTerminalSessionResponse> {
-    return this.terminal.create(user, session, body.assetId, actor);
+    return this.terminal.create(user, session, body.assetId, actor, body.action ?? null);
   }
 }
 

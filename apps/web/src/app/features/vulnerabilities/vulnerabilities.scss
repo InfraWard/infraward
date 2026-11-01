@@ -566,3 +566,12 @@ h3.flush {
 :host ::ng-deep tr.noise > td {
   opacity: 0.7;
 }
+
+/* Acciones de la cabecera, juntas a la derecha (la cabecera reparte sus hijos con space-between). */
+.head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin-left: auto;
+}

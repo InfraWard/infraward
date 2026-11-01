@@ -122,7 +122,7 @@ export async function readBoltValue(
     let node: Node = { kind: 'page', pgid: meta.root };
     for (const name of buckets) {
       const hit = await reader.get(node, Buffer.from(name));
-      if (!hit || !hit.bucket) return null;
+      if (!hit?.bucket) return null;
       node = bucketRoot(hit.value);
     }
     const hit = await reader.get(node, Buffer.from(key));
@@ -158,7 +158,7 @@ class BoltReader {
     );
     if (!valid.length)
       throw new TrivyDbError('BD de Trivy no válida (cabecera de BoltDB)');
-    this.m = valid.reduce((a, b) => (b.txid > a.txid ? b : a));
+    this.m = valid.reduce((a, b) => (b.txid > a.txid ? b : a), valid[0]);
     return this.m;
   }
 

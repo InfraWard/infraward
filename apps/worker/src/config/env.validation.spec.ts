@@ -109,6 +109,7 @@ describe('validateEnv (worker)', () => {
       'host-scan': 1,
       sbom: 1,
       scan: 1,
+      alerts: 2,
     });
     expect(
       queueConcurrency(validateEnv({ ...BASE, SCAN_CONCURRENCY: '3' }))['image-scan'],
@@ -127,6 +128,7 @@ describe('validateEnv (worker)', () => {
       RECONCILE_CONCURRENCY: '0',
       HOST_SCAN_CONCURRENCY: '0',
       SBOM_CONCURRENCY: '0',
+      ALERTS_CONCURRENCY: '0',
     };
     expect(
       queueConcurrency(validateEnv({ ...BASE, ...zero, IMAGE_SCAN_CONCURRENCY: '0', COLLECT_CONCURRENCY: '1' })).scan,
@@ -134,6 +136,12 @@ describe('validateEnv (worker)', () => {
     expect(() =>
       validateEnv({ ...BASE, ...zero, IMAGE_SCAN_CONCURRENCY: '0' }),
     ).toThrow(/todas las concurrencias son 0/);
+    // Una réplica que solo envía alertas sí vale.
+    expect(
+      queueConcurrency(
+        validateEnv({ ...BASE, ...zero, IMAGE_SCAN_CONCURRENCY: '0', ALERTS_CONCURRENCY: '1' }),
+      ).alerts,
+    ).toBe(1);
   });
 
   it('límites por host, nombre de la réplica y líder', () => {
@@ -147,5 +155,37 @@ describe('validateEnv (worker)', () => {
     expect(env.WORKER_LEADER_ELIGIBLE).toBe(false);
     expect(validateEnv(BASE).WORKER_LEADER_ELIGIBLE).toBe(true);
     expect(env.WORKER_SHUTDOWN_GRACE).toBe(90);
+  });
+
+  it('alertas: SMTP coherente y las opcionales vacías (compose) como no definidas', () => {
+    const env = validateEnv({
+      ...BASE,
+      SMTP_HOST: '',
+      SMTP_USER: '',
+      SMTP_PASSWORD_REF: '',
+      SMTP_FROM: '',
+      ALERTS_PUBLIC_URL: '',
+    });
+    expect(env.SMTP_HOST).toBeUndefined();
+    expect(env.SMTP_PASSWORD_REF).toBeUndefined();
+    expect(env.ALERTS_WEBHOOK_ALLOW_PRIVATE).toBe(false);
+    expect(env.SMTP_REQUIRE_TLS).toBe(true);
+    expect(() => validateEnv({ ...BASE, SMTP_HOST: 'smtp.example.com' })).toThrow(/SMTP_FROM/);
+    expect(() =>
+      validateEnv({ ...BASE, SMTP_HOST: 'smtp.example.com', SMTP_FROM: 'a@b.c', SMTP_USER: 'u' }),
+    ).toThrow(/SMTP_USER y SMTP_PASSWORD_REF/);
+    expect(() =>
+      validateEnv({ ...BASE, SMTP_PASSWORD_REF: 'contraseña-en-claro', SMTP_USER: 'u' }),
+    ).toThrow(/SMTP_PASSWORD_REF/);
+    expect(
+      validateEnv({
+        ...BASE,
+        SMTP_HOST: 'smtp.example.com',
+        SMTP_FROM: 'InfraWard <a@b.c>',
+        SMTP_USER: 'u',
+        SMTP_PASSWORD_REF: 'secret://local/smtp#password',
+        ALERTS_WEBHOOK_ALLOW_PRIVATE: 'true',
+      }).ALERTS_WEBHOOK_ALLOW_PRIVATE,
+    ).toBe(true);
   });
 });

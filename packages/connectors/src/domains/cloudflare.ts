@@ -3,6 +3,7 @@ import {
   type CloudflareTunnel,
   type DnsRecordType,
   type TunnelIngress,
+  byCodeUnit,
 } from '@infraward/shared-types';
 import {
   DomainApiError,
@@ -136,7 +137,7 @@ export class CloudflareProvider implements DomainProvider {
         ...new Set(
           zones.map((z) => z.account?.name ?? z.account?.id).filter(isString),
         ),
-      ].sort(),
+      ].sort(byCodeUnit),
       zones: zones.length,
       warnings,
     };
@@ -322,7 +323,7 @@ function parseZone(row: unknown): ProviderZone | null {
       ? row.name_servers.map(dnsName).filter(isString).slice(0, 20)
       : [],
     plan: isObj(row.plan) ? str(row.plan.name) : null,
-    account: account && account.id ? account : null,
+    account: account?.id ? account : null,
   };
 }
 

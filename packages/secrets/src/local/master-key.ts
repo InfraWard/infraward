@@ -62,12 +62,11 @@ export function masterKeyId(bytes: Buffer): string {
  * Carga y valida la clave maestra: exactamente una de las dos fuentes, base64 y 32 bytes.
  * Los errores dicen qué falla y de qué variable, nunca el valor.
  */
+const MASTER_KEY_NAMES = { key: MASTER_KEY_ENV, file: MASTER_KEY_FILE_ENV };
+
 export function loadMasterKey(
   source: MasterKeySource,
-  names: { key: string; file: string } = {
-    key: MASTER_KEY_ENV,
-    file: MASTER_KEY_FILE_ENV,
-  },
+  names: { key: string; file: string } = MASTER_KEY_NAMES,
 ): MasterKey {
   const hasKey = source.key !== undefined && source.key !== '';
   const hasFile = source.file !== undefined && source.file !== '';

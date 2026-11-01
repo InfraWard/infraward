@@ -10,12 +10,12 @@ const ORPHAN_AFTER = '2 minutes';
 /** Filas revisadas en cada pasada. */
 const BATCH = 200;
 
-const WAITING: readonly JobState[] = [
+const WAITING: ReadonlySet<JobState> = new Set<JobState>([
   'waiting',
   'delayed',
   'prioritized',
   'waiting-children',
-];
+]);
 
 /**
  * Barrido de huérfanos (DESIGN §20), en el líder: las filas de `job_runs` sin terminar se cotejan
@@ -74,7 +74,7 @@ export class OrphanSweeper {
           job?.failedReason || 'El job falló',
         );
         fixed++;
-      } else if (row.state === 'active' && WAITING.includes(state)) {
+      } else if (row.state === 'active' && WAITING.has(state)) {
         await this.runs.requeuedById(
           row.id,
           (worker) => `Vuelve a la cola: ${worker} lo soltó sin terminarlo`,

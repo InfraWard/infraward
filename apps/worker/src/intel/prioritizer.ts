@@ -325,7 +325,7 @@ export class FindingPrioritizer {
     return out;
   }
 
-  private async findings(ids: string[]): Promise<StoredRow[]> {
+  private findings(ids: string[]): Promise<StoredRow[]> {
     return this.db.query(
       `SELECT f.id, f.asset_id AS "assetId", f.vulnerability_id AS "vulnerabilityId",
               f.package_name AS "packageName", f.installed_version AS "installedVersion",
@@ -346,7 +346,7 @@ export class FindingPrioritizer {
    * Aviso inmediato de CVE críticos, en KEV y expuestos de un asset. Marca `kev_alerted_at`
    * solo en los que aún no lo tenían (otra pasada a la vez no avisa dos veces).
    */
-  private async alert(asset: AssetContext, rows: StoredRow[]): Promise<number> {
+  private alert(asset: AssetContext, rows: StoredRow[]): Promise<number> {
     return this.db.transaction(async (m) => {
       // Un UPDATE … RETURNING devuelve [filas, recuento].
       const [marked]: [{ id: string }[], number] = await m.query(

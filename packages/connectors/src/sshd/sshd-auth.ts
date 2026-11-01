@@ -11,7 +11,7 @@ import type { SshdAuthFacts } from '@infraward/shared-types';
  * El ayudante (`ansible/enroll/enroll.sh.tmpl`) lo lleva tal cual (un test lo compara). Sin
  * comillas simples dentro del awk ni `{{`, `{%`, `{#` o `${`.
  */
-export const SSHD_AUTH_SCRIPT = `LC_ALL=C
+export const SSHD_AUTH_SCRIPT = String.raw`LC_ALL=C
 export LC_ALL
 S=$(command -v sshd 2>/dev/null)
 for c in /usr/sbin/sshd /usr/local/sbin/sshd /sbin/sshd; do
@@ -20,7 +20,7 @@ for c in /usr/sbin/sshd /usr/local/sbin/sshd /sbin/sshd; do
 done
 [ -n "$S" ] || exit 3
 "$S" -T -C user=root,host=localhost,addr=127.0.0.1 2>/dev/null | awk '
-$1 == "permitrootlogin" || $1 == "passwordauthentication" || $1 == "kbdinteractiveauthentication" || $1 == "challengeresponseauthentication" { print $1 "\\t" $2 }
+$1 == "permitrootlogin" || $1 == "passwordauthentication" || $1 == "kbdinteractiveauthentication" || $1 == "challengeresponseauthentication" { print $1 "\t" $2 }
 '
 `;
 

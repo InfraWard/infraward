@@ -8,6 +8,12 @@ import type {
   EnrollmentVerifyJobData,
   EnrollmentVerifyJobResult,
 } from './enrollment.js';
+import type {
+  AlertDeliverJobData,
+  AlertDeliverJobResult,
+  AlertTestJobData,
+  AlertTestResult,
+} from './alerts.js';
 import type { AssetType } from './assets.js';
 import type { BulkAssetAction } from './bulk.js';
 import type {
@@ -56,6 +62,8 @@ export const QUEUE_NAMES = {
   hostScan: 'host-scan',
   sbom: 'sbom',
   scan: 'scan',
+  /** Envíos de alertas fuera de la app (DESIGN §10): aparte, para no esperar a KEV/EPSS ni prioridad. */
+  alerts: 'alerts',
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -77,6 +85,8 @@ export const JOB_NAMES = {
   vulnerabilityIntel: 'vulnerability.intel',
   findingsPrioritize: 'findings.prioritize',
   metricsSample: 'metrics.sample',
+  alertDeliver: 'alert.deliver',
+  alertTest: 'alert.test',
 } as const;
 
 /** Id fijo de `services.link`: como mucho uno en cola (no es un UUID: no sale en la Actividad). */
@@ -213,6 +223,21 @@ export interface JobContracts {
     data: MetricsSampleJobData;
     result: MetricsSampleJobResult;
   };
+  /**
+   * Envía una notificación por un canal de alertas (DESIGN §10). Id `alert-<notificación>-<canal>`
+   * (no es un UUID: no sale en la Actividad), con reintentos.
+   */
+  'alert.deliver': {
+    queue: typeof QUEUE_NAMES.alerts;
+    data: AlertDeliverJobData;
+    result: AlertDeliverJobResult;
+  };
+  /** Mensaje de prueba por un canal de alertas (la API lo espera con `runQuick`). */
+  'alert.test': {
+    queue: typeof QUEUE_NAMES.alerts;
+    data: AlertTestJobData;
+    result: AlertTestResult;
+  };
   /** Solo historial (Actividad): nunca se encola. */
   'assets.bulk': {
     queue: typeof QUEUE_NAMES.system;
@@ -275,6 +300,8 @@ export const JOB_QUEUES: { [N in JobName]: JobQueue<N> } = {
   'vulnerability.intel': QUEUE_NAMES.system,
   'findings.prioritize': QUEUE_NAMES.system,
   'metrics.sample': QUEUE_NAMES.system,
+  'alert.deliver': QUEUE_NAMES.alerts,
+  'alert.test': QUEUE_NAMES.alerts,
 };
 
 /** Colas en las que solo se encolaba antes de la sesión W-0 (se drenan, no se encola). */
@@ -368,6 +395,45 @@ export const JOB_RUN_STATES = [
 ] as const;
 export type JobRunState = (typeof JOB_RUN_STATES)[number];
 
+/**
+ * Qué lanzó una ejecución que no cuelga de otra (columna `trigger` de `job_runs`): una petición
+ * a la API (`manual`), la comprobación periódica del inventario (`schedule`) o el script de alta
+ * (`enrollment`). null en las anteriores a esta versión o si el registro al encolar falló.
+ */
+export const JOB_RUN_TRIGGERS = ['manual', 'schedule', 'enrollment'] as const;
+export type JobRunTrigger = (typeof JOB_RUN_TRIGGERS)[number];
+
+/**
+ * De dónde viene una ejecución (Actividad): de una operación en lote (`bulk`), encadenada por
+ * otra tarea (`chain`: recolección → descubrimiento → escaneos, reconciliación → recolecciones)
+ * o, sin padre, lo que diga su `trigger`.
+ */
+export const JOB_RUN_ORIGINS = ['bulk', 'chain', ...JOB_RUN_TRIGGERS] as const;
+export type JobRunOrigin = (typeof JOB_RUN_ORIGINS)[number];
+
+/** Origen de una ejecución a partir de su padre (si sigue en el historial) y su `trigger`. */
+export function jobRunOrigin(run: {
+  parentJobId: string | null;
+  parent: Pick<JobRunParent, 'name'> | null;
+  trigger: JobRunTrigger | null;
+}): JobRunOrigin | null {
+  if (run.parentJobId)
+    return run.parent?.name === JOB_NAMES.assetsBulk ? 'bulk' : 'chain';
+  return run.trigger;
+}
+
+/** La tarea de la que colgó una ejecución (lote o cadena), tal como está en el historial. */
+export interface JobRunParent {
+  id: string;
+  name: JobName;
+  assetId: string | null;
+  assetName: string | null;
+  assetType: AssetType | null;
+  state: JobRunState;
+  /** En un lote, su resumen: «Recolectar · 12 assets · por …». */
+  message: string | null;
+}
+
 /** Filtro de estado de GET /jobs: `running` = en cola o en curso. */
 export const JOB_RUN_STATE_FILTERS = [...JOB_RUN_STATES, 'running'] as const;
 export type JobRunStateFilter = (typeof JOB_RUN_STATE_FILTERS)[number];
@@ -389,8 +455,12 @@ export interface JobRunSummary {
   message: string | null;
   /** Motivo del fallo (apto para mostrarse: sin secretos). */
   error: string | null;
-  /** Job que lo encoló (cadenas: recolección → descubrimiento → …). */
+  /** Job que lo encoló (cadenas: recolección → descubrimiento → …) o el lote que lo lanzó. */
   parentJobId: string | null;
+  /** Ese job, si sigue en el historial (null si no tiene o ya se podó). */
+  parent: JobRunParent | null;
+  /** De dónde viene (`jobRunOrigin`); null si no se sabe (ejecuciones antiguas). */
+  origin: JobRunOrigin | null;
   /** Réplica del worker que lo ejecuta o lo ejecutó por última vez (`worker-2`); null si no empezó. */
   worker: string | null;
   createdAt: string;
@@ -403,6 +473,8 @@ export interface JobRunSummary {
    * cuántos, cuántos siguen en curso y cuántos fallaron. Solo si tiene alguno.
    */
   children?: { total: number; running: number; failed: number };
+  /** Tiene log guardado (DESIGN §20, «Log de cada ejecución»): se ve en su detalle de la Actividad. */
+  hasLog?: boolean;
 }
 
 export interface JobRunListQuery {
@@ -412,6 +484,8 @@ export interface JobRunListQuery {
   parentJobId?: string;
   state?: JobRunStateFilter;
   name?: JobName;
+  /** Solo las de este origen (`jobRunOrigin`). */
+  origin?: JobRunOrigin;
   limit?: number;
   offset?: number;
 }

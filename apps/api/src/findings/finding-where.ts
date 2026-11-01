@@ -3,7 +3,7 @@ import {
   PUBLIC_EXPOSED_OWNER,
   SCAN_ENABLED_OWNER,
 } from '@infraward/domain';
-import { findingSearchWhere, likeLiteral } from './finding-search.js';
+import { findingSearchWhere } from './finding-search.js';
 import {
   PRIORITY_BAND_MIN,
   severitiesAtLeast,
@@ -18,7 +18,7 @@ export interface SqlWhere {
 
 export { NOT_UNUSED_IMAGE, SCAN_ENABLED_OWNER };
 
-export { likeLiteral };
+export { likeLiteral } from './finding-search.js';
 
 /**
  * Expuesto de cualquier forma: los motivos de su prioridad llevan un puerto expuesto (proceso o
@@ -36,9 +36,11 @@ const IN_KEV = `EXISTS (SELECT 1 FROM vulnerability_intel ki
  * un asset, la agrupada por CVE y la búsqueda global. `params` puede traer ya parámetros: los
  * nuevos se numeran a continuación.
  */
+const NO_WHERE: SqlWhere = { where: [], params: [] };
+
 export function findingWhere(
   query: Omit<FindingListQuery, 'limit' | 'offset'>,
-  base: SqlWhere = { where: [], params: [] },
+  base: SqlWhere = NO_WHERE,
 ): SqlWhere {
   const where = [...base.where];
   const params = [...base.params];

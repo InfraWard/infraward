@@ -681,7 +681,8 @@ describe('Descubrimiento de Proxmox (e2e)', () => {
         [plain.id, pve.fingerprint],
       );
     }
-  });
+    // Dos recolecciones con sus cadenas: con el runner del CI cargado no caben en 60 s.
+  }, 180_000);
 
   it('aparece en OpenAPI', async () => {
     const spec = (await app.inject({ url: '/openapi.json' })).json<{

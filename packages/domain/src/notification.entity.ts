@@ -66,4 +66,12 @@ export class Notification {
   @Index('IDX_notifications_created')
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
+
+  /**
+   * Cuándo la repartió el worker a los canales de alertas (DESIGN §10); null = pendiente. Índice
+   * parcial (WHERE dispatched_at IS NULL) en la migración.
+   */
+  @Index('IDX_notifications_undispatched', { synchronize: false })
+  @Column({ name: 'dispatched_at', type: 'timestamptz', nullable: true })
+  dispatchedAt: Date | null;
 }

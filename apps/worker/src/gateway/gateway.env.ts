@@ -13,6 +13,7 @@ import {
 } from 'class-validator';
 import { resolve } from 'node:path';
 import { NODE_ENVS, resolveRedisPassword } from '../config/env.validation.js';
+import { byCodeUnit } from '@infraward/shared-types';
 
 /**
  * Fichero .env del gateway (no el del worker: ese lleva los secretos). Las variables ya
@@ -188,10 +189,12 @@ export function validateGatewayEnv(config: Record<string, unknown>): GatewayEnvi
   const forbidden = Object.keys(config).filter(
     (k) => GATEWAY_FORBIDDEN_ENV.test(k) && config[k] !== undefined && config[k] !== '',
   );
-  if (forbidden.length > 0)
+  if (forbidden.length > 0) {
+    forbidden.sort(byCodeUnit);
     throw new Error(
-      `El gateway no accede al gestor de secretos: quita ${forbidden.sort().join(', ')} de su entorno (pide los certificados a la API)`,
+      `El gateway no accede al gestor de secretos: quita ${forbidden.join(', ')} de su entorno (pide los certificados a la API)`,
     );
+  }
   const env = plainToInstance(GatewayEnvironment, config, { enableImplicitConversion: true });
   const errors = validateSync(env, { skipMissingProperties: false });
   if (errors.length > 0) {

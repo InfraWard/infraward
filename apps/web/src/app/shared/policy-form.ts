@@ -118,10 +118,11 @@ export class PolicyForm {
     // Un valor fijado por la API que no está en la lista también se ofrece.
     if (typeof current === 'number' && current > 0 && !presets.includes(current))
       presets.push(current);
+    presets.sort((a, b) => a - b);
     return [
       ...this.inherit(),
       { label: 'Nunca', value: 0 },
-      ...presets.sort((a, b) => a - b).map((m) => ({ label: formatInterval(m), value: m })),
+      ...presets.map((m) => ({ label: formatInterval(m), value: m })),
     ];
   });
   protected readonly scanOptions = computed<Option<string | boolean>[]>(() => [
@@ -136,7 +137,7 @@ export class PolicyForm {
   ]);
 
   protected toOption(value: number | boolean | null | undefined): unknown {
-    return value === null || value === undefined ? INHERIT : value;
+    return value ?? INHERIT;
   }
 
   protected setExclusions(exclusions: ScanExclusions | null | undefined): void {

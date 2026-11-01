@@ -18,7 +18,7 @@ import type {
 import { DataSource, type EntityManager } from 'typeorm';
 
 /** Candado de transacción de los caminos (sincronizaciones, tick y job no se pisan). */
-export const SERVICE_LINK_LOCK = 0x1d45_0002;
+export const SERVICE_LINK_LOCK = 0x1d_45_00_02;
 
 const HOST_TYPES = ['server', 'vm', 'lxc'];
 

@@ -75,7 +75,8 @@ export function availableActions(
     else add('collect');
   }
 
-  const dockerHost = asset.roles.includes('docker-host');
+  const dockerHost =
+    asset.roles.includes('docker-host') || asset.roles.includes('podman-host');
   if (asset.type === 'container')
     add('scan', active ? null : 'Solo se escanean contenedores activos');
   else if (asset.type === 'image') add('scan');

@@ -14,6 +14,7 @@ export type GroupedNotificationKind = Exclude<
   | 'dns_dangling'
   | 'vulnerability_kev'
   | 'vault_revealed'
+  | 'finding_acceptance_expired'
 >;
 
 const VERBS: Record<GroupedNotificationKind, [string, string]> = {

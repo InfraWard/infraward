@@ -48,6 +48,8 @@ export const JOB_LABELS: Record<JobName, string> = {
   'vulnerability.intel': 'Descarga de KEV y EPSS',
   'findings.prioritize': 'Prioridad de las vulnerabilidades',
   'metrics.sample': 'Muestra diaria de métricas',
+  'alert.deliver': 'Envío de una alerta',
+  'alert.test': 'Prueba de un canal de alertas',
 };
 
 export const JOB_STATE_LABELS: Record<EnrollmentJobProgress['state'], string> =

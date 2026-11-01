@@ -130,11 +130,11 @@ export function resolveRole(
   const matched = [...new Set(groups)].filter((g) => mapping.has(g));
   if (matched.length === 0)
     return { role: unmapped === 'viewer' ? 'viewer' : null, matched };
-  const role = matched
-    .map((g) => mapping.get(g)!)
-    .reduce((best, r) =>
-      USER_ROLES.indexOf(r) < USER_ROLES.indexOf(best) ? r : best,
-    );
+  const roles = matched.map((g) => mapping.get(g)!);
+  const role = roles.reduce(
+    (best, r) => (USER_ROLES.indexOf(r) < USER_ROLES.indexOf(best) ? r : best),
+    roles[0],
+  );
   return { role, matched };
 }
 

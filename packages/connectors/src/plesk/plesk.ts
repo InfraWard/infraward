@@ -1,11 +1,12 @@
-import type {
-  AssetRelationType,
-  AssetType,
-  CertificateFacts,
-  PleskDatabaseFacts,
-  PleskDomainFacts,
-  PleskDomainKind,
-  PleskSubscriptionFacts,
+import {
+  byCodeUnit,
+  type AssetRelationType,
+  type AssetType,
+  type CertificateFacts,
+  type PleskDatabaseFacts,
+  type PleskDomainFacts,
+  type PleskDomainKind,
+  type PleskSubscriptionFacts,
 } from '@infraward/shared-types';
 import {
   DiscoveryError,
@@ -28,7 +29,7 @@ import type { PleskQuery } from './queries.js';
 
 /** Nombres de dominio de Plesk (`name` es ASCII: los IDN van en punycode). */
 const DOMAIN_NAME =
-  /^(?=.{1,253}$)[A-Za-z0-9_](?:[A-Za-z0-9_.-]*[A-Za-z0-9])?$/;
+  /^(?=.{1,253}$)\w(?:[\w.-]*[A-Za-z0-9])?$/;
 /** Nombres de base de datos y de certificado: texto razonable, sin caracteres de control. */
 const PLAIN_NAME = /^[\p{L}\p{M}\p{N}\p{P}\p{S} ]{1,255}$/u;
 
@@ -286,7 +287,7 @@ export class PleskDiscoverer implements Discoverer {
         usedBy: domains
           .filter((d) => d.certificate === c.id)
           .map((d) => d.name)
-          .sort(),
+          .sort(byCodeUnit),
         repository,
         discoveredAt: at,
       };

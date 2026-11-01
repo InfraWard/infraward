@@ -111,7 +111,7 @@ export class OidcController {
   /**
    * Reautenticación (step-up) de la sesión actual con el proveedor: navegación completa desde la
    * web (la cookie Strict de la sesión va con ella). El proveedor pide otra vez las credenciales
-   * (`prompt=login`, `max_age=0`) y el callback marca la sesión y vuelve a `returnUrl?reauth=ok`.
+   * (`prompt=login` y `max_age`) y el callback marca la sesión y vuelve a `returnUrl?reauth=ok`.
    */
   @Get('oidc/reauth')
   @SessionOnly()

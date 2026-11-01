@@ -132,7 +132,7 @@ export async function saveSnapshotIfChanged(
   });
   const next = { facts, roles };
   const diff = last ? diffSnapshots(last, next) : null;
-  if (diff && diff.summary.length === 0) return null;
+  if (diff?.summary.length === 0) return null;
   const snapshot = await m.save(
     m.create(Snapshot, {
       assetId,

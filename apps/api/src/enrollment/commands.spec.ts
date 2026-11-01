@@ -62,6 +62,8 @@ describe('comandos de enrolamiento', () => {
     // Los ayudantes (el de la v4 y el de Plesk de la v3) se van con el sudoers.
     expect(command).toContain('/usr/local/libexec/infraward/infraward-query');
     expect(command).toContain('/usr/local/libexec/infraward/plesk-query');
+    // Y la lista de usuarios de Podman rootless (v8).
+    expect(command).toContain('/etc/infraward/podman-users');
     expect(command).toContain('userdel -r inventory');
   });
 

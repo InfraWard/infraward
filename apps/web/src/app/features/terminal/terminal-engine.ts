@@ -64,14 +64,30 @@ export interface TerminalView {
 
 export type TerminalEngine = (container: HTMLElement, theme: TerminalTheme) => Promise<TerminalView>;
 
+/**
+ * Una exportación de un paquete CommonJS/UMD (los de xterm) importado con `import()`. Según el
+ * empaquetador llega como exportación con nombre (`ng serve`, tests) o solo dentro de `default`
+ * (la build de producción: el chunk solo exporta `default`, y desestructurar `{ Terminal }` daba
+ * `undefined` y «No se pudo cargar la terminal»).
+ */
+export function commonJsExport<M extends object, K extends keyof M>(module: M, name: K): M[K] {
+  const direct = module[name];
+  if (direct !== undefined) return direct;
+  const fallback = (module as { default?: Partial<M> }).default?.[name];
+  if (fallback === undefined) throw new Error(`El módulo no exporta ${String(name)}`);
+  return fallback as M[K];
+}
+
 /** xterm.js + el ajuste al contenedor, cargados solo al abrir una terminal. */
 export const TERMINAL_ENGINE = new InjectionToken<TerminalEngine>('TERMINAL_ENGINE', {
   providedIn: 'root',
   factory: () => async (container, theme) => {
-    const [{ Terminal }, { FitAddon }] = await Promise.all([
+    const [xterm, fitAddon] = await Promise.all([
       import('@xterm/xterm'),
       import('@xterm/addon-fit'),
     ]);
+    const Terminal = commonJsExport(xterm, 'Terminal');
+    const FitAddon = commonJsExport(fitAddon, 'FitAddon');
     const term = new Terminal({
       theme,
       cursorBlink: true,

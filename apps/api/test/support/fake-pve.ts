@@ -46,6 +46,118 @@ export type FakeDockerHost = Pick<
   'containers' | 'volumes' | 'networks' | 'extraImages' | 'denyUnusedListing'
 >;
 
+export interface FakePodmanHost {
+  /** Salida de la consulta `podman-users` (`P uid lista socket storage linger contenedores usuario`). */
+  users: string;
+  /** Imágenes que `podman save` de root no encuentra (se sacan del almacén rootless). */
+  rootMissing?: string[];
+}
+
+/**
+ * `docker-archive` de verdad (manifest, config y una capa) para una imagen del almacén rootless:
+ * el worker comprueba que el config tiene el sha256 del image ID y cada capa el de su
+ * `rootfs.diff_ids` (DESIGN §9), así que el image ID es el sha256 de este config. `seed` lo hace
+ * distinto para cada imagen.
+ */
+function dockerArchive(seed: string): { imageId: string; tar: Buffer } {
+  const sha = (b: Buffer) => createHash('sha256').update(b).digest('hex');
+  const layer = Buffer.from(`capa de ${seed}\n`);
+  const config = Buffer.from(
+    JSON.stringify({
+      architecture: 'amd64',
+      os: 'linux',
+      config: { Labels: { 'infraward.test': seed } },
+      rootfs: { type: 'layers', diff_ids: [`sha256:${sha(layer)}`] },
+    }),
+  );
+  const configName = `${sha(config)}.json`;
+  const manifest = Buffer.from(
+    JSON.stringify([{ Config: configName, RepoTags: null, Layers: ['capa/layer.tar'] }]),
+  );
+  return {
+    imageId: `sha256:${sha(config)}`,
+    tar: tarOf([
+      ['manifest.json', manifest],
+      [configName, config],
+      ['capa/layer.tar', layer],
+    ]),
+  };
+}
+
+/** Tar ustar mínimo (ficheros regulares, nombres cortos). */
+function tarOf(files: [string, Buffer][]): Buffer {
+  const blocks: Buffer[] = [];
+  for (const [name, data] of files) {
+    const header = Buffer.alloc(512);
+    header.write(name, 0, 100, 'utf8');
+    header.write('0000644\0', 100, 'ascii');
+    header.write('0000000\0', 108, 'ascii');
+    header.write('0000000\0', 116, 'ascii');
+    header.write(`${data.length.toString(8).padStart(11, '0')}\0`, 124, 'ascii');
+    header.write('00000000000\0', 136, 'ascii');
+    header.write('        ', 148, 'ascii');
+    header.write('0', 156, 'ascii');
+    header.write('ustar\0', 257, 'ascii');
+    header.write('00', 263, 'ascii');
+    let sum = 0;
+    for (const byte of header) sum += byte;
+    header.write(`${sum.toString(8).padStart(6, '0')}\0 `, 148, 'ascii');
+    blocks.push(header, data, Buffer.alloc((512 - (data.length % 512)) % 512));
+  }
+  blocks.push(Buffer.alloc(1024));
+  return Buffer.concat(blocks);
+}
+
+const RAW_PODMAN_FIXTURES: Record<string, string> = Object.fromEntries(
+  [
+    'ps.txt', 'inspect.jsonl', 'pods.jsonl', 'images.txt', 'image-inspect.jsonl', 'volume-ls.txt',
+    'volume-inspect.jsonl', 'network-ls.txt', 'network-inspect.jsonl', 'rootless-ps.txt',
+    'rootless-inspect.jsonl', 'rootless-images.txt', 'rootless-image-inspect.jsonl',
+    'rootless-volume-ls.txt', 'rootless-volume-inspect.jsonl', 'rootless-network-ls.txt',
+    'rootless-network-inspect.jsonl',
+  ].map((f) => [
+    f,
+    readFileSync(
+      new URL(`../../../../packages/connectors/src/podman/fixtures/${f}`, import.meta.url),
+      'utf8',
+    ),
+  ]),
+);
+
+/**
+ * Las imágenes del almacén rootless (alpine en los fixtures) llevan, en lugar de su image ID real,
+ * el de un `docker-archive` válido: el `podman save` falso de un usuario lo devuelve y la
+ * verificación del worker lo acepta. Las de root siguen con el tar falso (no se verifican).
+ */
+const ROOTLESS_ARCHIVES = new Map(
+  RAW_PODMAN_FIXTURES['rootless-images.txt']!
+    .split('\n')
+    .filter(Boolean)
+    .map((id) => [id, dockerArchive(id)] as const),
+);
+
+/** Image ID con el que sale en los fixtures simulados una imagen de los de verdad. */
+export function podmanImageId(original: string): string {
+  return ROOTLESS_ARCHIVES.get(original)?.imageId ?? original;
+}
+
+/** Salidas reales de Podman 5.4.2 (las de los tests del descubridor), con esos image IDs. */
+const PODMAN_FIXTURES = Object.fromEntries(
+  Object.entries(RAW_PODMAN_FIXTURES).map(([file, text]) => [
+    file,
+    [...ROOTLESS_ARCHIVES].reduce(
+      (t, [original, { imageId }]) =>
+        t.replaceAll(original.slice(7), imageId.slice(7)),
+      text,
+    ),
+  ]),
+);
+
+/** El tar de cada imagen rootless (base64), por su image ID simulado. */
+const PODMAN_ARCHIVES = Object.fromEntries(
+  [...ROOTLESS_ARCHIVES.values()].map((a) => [a.imageId, a.tar.toString('base64')]),
+);
+
 /** Base de datos de Plesk simulada: filas de cada consulta fija de `plesk db`. */
 export interface FakePlesk {
   domains: object[];
@@ -118,7 +230,13 @@ export interface FakePveState {
    * Qué detecta la recolección del servidor (no de los CT): por defecto un nodo Proxmox. Con
    * `plesk` responde a las consultas `plesk-*` del ayudante y con `docker`, a las `docker-*`.
    */
-  nodeRoles?: ('proxmox' | 'plesk' | 'docker')[];
+  nodeRoles?: ('proxmox' | 'plesk' | 'docker' | 'podman')[];
+  /**
+   * Podman del servidor (con `nodeRoles` `podman`): responde a las consultas `podman-*` con las
+   * salidas reales de `packages/connectors/src/podman/fixtures` (root y, por el uid 1000, las
+   * `rootless-*`); los demás uids no tienen socket.
+   */
+  hostPodman?: FakePodmanHost;
   /** Docker del propio servidor (con `nodeRoles` `docker`). */
   hostDocker?: FakeDockerHost;
   /** IPv4 por defecto del servidor (facts de la recolección). */
@@ -288,6 +406,43 @@ function plesk(key) {
   process.stdout.write(state.plesk[key].map((r) => JSON.stringify({ ...r, passwd: 'centinela-plesk' }) + '\\n').join(''));
   process.exit(0);
 }
+// Podman del servidor: salidas reales (fixtures) por ámbito; root o el uid 1000 (alice).
+function podman(query, qargs) {
+  const FIX = ${JSON.stringify(PODMAN_FIXTURES)};
+  const ARCHIVES = ${JSON.stringify(PODMAN_ARCHIVES)};
+  const done = (out) => { process.stdout.write(out); process.exit(0); };
+  const p = state.hostPodman || { users: '' };
+  if (query === 'podman-version') done('5.4.2\\n');
+  if (query === 'podman-users') done(p.users);
+  const [scope, ...rest] = qargs;
+  if (scope !== 'root' && scope !== '1000') {
+    process.stderr.write('Error: unable to connect to Podman socket: dial unix /run/user/' + scope + '/podman/podman.sock: connect: no such file or directory\\n');
+    process.exit(125);
+  }
+  const f = (name) => FIX[(scope === 'root' ? '' : 'rootless-') + name] || '';
+  const lines = (name) => f(name).split('\\n').filter(Boolean);
+  const pick = (name, key) => done(lines(name).filter((l) => rest.includes(JSON.parse(l)[key])).map((l) => l + '\\n').join(''));
+  if (query === 'podman-ps') done(f('ps.txt'));
+  if (query === 'podman-pods') done(scope === 'root' ? FIX['pods.jsonl'] : '');
+  if (query === 'podman-images') done(f('images.txt'));
+  if (query === 'podman-volumes') done(f('volume-ls.txt'));
+  if (query === 'podman-networks') done(f('network-ls.txt'));
+  if (query === 'podman-inspect-containers') pick('inspect.jsonl', 'id');
+  if (query === 'podman-image-inspect') pick('image-inspect.jsonl', 'id');
+  if (query === 'podman-volume-inspect') pick('volume-inspect.jsonl', 'name');
+  if (query === 'podman-network-inspect') pick('network-inspect.jsonl', 'name');
+  if (query === 'podman-save') {
+    const id = rest[0];
+    if (lines('images.txt').includes(id) && !(scope === 'root' && (p.rootMissing || []).includes(id))) {
+      // De un usuario, un docker-archive de verdad (el worker lo verifica); de root, el tar falso.
+      if (scope !== 'root' && ARCHIVES[id]) done(Buffer.from(ARCHIVES[id], 'base64'));
+      done(JSON.stringify({ fakeImage: id, pad: 'x'.repeat(4096) }));
+    }
+    process.stderr.write('Error: ' + id + ': image not known\\n'); process.exit(125);
+  }
+  if (query === 'podman-nginx-routes') { process.stderr.write('infraward: nginx -T falló (127)\\n'); process.exit(3); }
+  process.stderr.write('infraward-query: rechazado: consulta no simulada: ' + query + '\\n'); process.exit(64);
+}
 // Sistema de ficheros de un servidor o CT para el SBOM: solo lo que lee con \`ls\`/\`cat\` (sin sudo).
 function files(key) {
   const pkgs = (state.packages || {})[key];
@@ -364,6 +519,7 @@ if (query === 'docker-nginx-routes' && (state.nodeRoles || []).includes('docker'
   process.stdout.write(r.stdout); process.stderr.write(r.stderr); process.exit(r.status ?? 1);
 }
 if (dockerRest[query] && (state.nodeRoles || []).includes('docker')) docker(state.hostDocker || {}, dockerRest[query](qargs));
+if (query.startsWith('podman-') && (state.nodeRoles || []).includes('podman')) podman(query, qargs);
 if (query.startsWith('plesk-') && (state.nodeRoles || []).includes('plesk')) plesk(query.slice('plesk-'.length));
 const pvesh = {
   'pve-cluster-status': () => '/cluster/status',
@@ -444,6 +600,11 @@ if (!vmid && roles.includes('plesk')) {
   which.push('plesk=/usr/sbin/plesk');
   sudo.push({ item: { key: 'plesk' }, rc: 0, stdout: 'Product version: Plesk Obsidian 18.0.70.2' });
 }
+if (!vmid && roles.includes('podman')) {
+  which.push('podman=/usr/bin/podman');
+  sudo.push({ item: { key: 'podman' }, rc: 0, stdout: '5.4.2' });
+  sudo.push({ item: { key: 'podman_users' }, rc: 0, stdout: (state.hostPodman || {}).users || '' });
+}
 if (!vmid && roles.includes('docker')) {
   which.push('docker=/usr/bin/docker');
   sudo.push({ item: { key: 'docker' }, rc: 0, stdout: '28.3.1' });
@@ -494,10 +655,13 @@ const sbom = (component, os, libs) => ({ bomFormat: 'CycloneDX', specVersion: '1
       purl: 'pkg:deb/debian/' + p.name + '@' + p.version, properties: [{ name: 'aquasecurity:trivy:PkgType', value: 'debian' }] }))],
   dependencies: [], vulnerabilities: [] });
 const crypto = require('node:crypto');
-// SBOM de una imagen: el tar falso de \`docker save\` lleva el image ID; sus paquetes son los de sus
-// vulnerabilidades. Con una etiqueta que nunca se debe guardar.
+// SBOM de una imagen: el tar falso de \`docker save\` lleva el image ID (y uno de verdad, el nombre del
+// config, que es su digest); sus paquetes son los de sus vulnerabilidades. Con una etiqueta que
+// nunca se debe guardar.
 if (args[0] === 'image') {
-  const image = JSON.parse(fs.readFileSync(val('--input'), 'utf8')).fakeImage;
+  const raw = fs.readFileSync(val('--input'));
+  const image = raw[0] === 0x7b ? JSON.parse(raw.toString('utf8')).fakeImage
+    : 'sha256:' + /"Config":"([0-9a-f]{64})\\.json"/.exec(raw.toString('latin1'))[1];
   const libs = [...new Map(((state.vulns || {})[image] || []).map((v) => [v.pkg + '@' + v.version, { name: v.pkg, version: v.version }])).values()];
   out(sbom({ type: 'container', name: 'image.tar', properties: [{ name: 'aquasecurity:trivy:ImageID', value: image },
     { name: 'aquasecurity:trivy:Labels:secreto', value: 'centinela-etiqueta' }] }, ['debian', '12.5'], libs));

@@ -14,6 +14,7 @@ import { catchError, EMPTY, map, of, type Observable } from 'rxjs';
 import { SettingsApi } from '../../core/api/settings-api';
 import { AuthService } from '../../core/auth/auth.service';
 import { apiErrorMessage } from '../../shared/api-errors';
+import { AlertsSettings } from './alerts-settings';
 import { ApiTokensSettings } from './api-tokens-settings';
 import { AuditLog } from './audit-log';
 import { ConnectorsSettings } from './connectors-settings';
@@ -45,6 +46,7 @@ export const SETTINGS_TABS = [
   'access',
   'providers',
   'vault',
+  'alerts',
   'audit',
 ] as const;
 export type SettingsTab = (typeof SETTINGS_TABS)[number];
@@ -55,6 +57,7 @@ const TAB_PERMISSION: Partial<Record<SettingsTab, Permission>> = {
   access: 'users.manage',
   providers: 'secrets.status',
   vault: 'vault.manage',
+  alerts: 'alerts.manage',
   audit: 'audit.read',
 };
 
@@ -62,11 +65,12 @@ const TAB_PERMISSION: Partial<Record<SettingsTab, Permission>> = {
  * Ajustes con pestañas (la abierta, en `?tab=`): Perfil (el propio, por defecto), Tokens de API
  * (los propios y, con users.manage, los de todos), Inventario
  * (política de inventario y avisos de caducidad) y, según los permisos del rol, Conectores
- * (dominios), Usuarios, Acceso (terminal), Secretos y Auditoría.
+ * (dominios), Usuarios, Acceso (terminal), Secretos, Caja fuerte, Alertas y Auditoría.
  */
 @Component({
   selector: 'app-settings',
   imports: [
+    AlertsSettings,
     CardModule,
     MessageModule,
     TabsModule,

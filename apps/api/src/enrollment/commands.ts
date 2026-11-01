@@ -76,7 +76,7 @@ const ADMIN_CREATED_MARK = '/etc/infraward/admin-access-created-user';
  */
 const RELOAD_SSHD =
   'sshd -t && { systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || ' +
-  'rc-service sshd reload 2>/dev/null || kill -HUP \\$(cat /run/sshd.pid); }';
+  String.raw`rc-service sshd reload 2>/dev/null || kill -HUP \$(cat /run/sshd.pid); }`;
 
 /**
  * Comando de baja: quita la línea de la clave del asset. Si era el usuario dedicado y no le
@@ -105,10 +105,10 @@ export function unenrollCommand(
       : '';
   return (
     // Entre comillas dobles solo hay que escapar los `$`.
-    `sudo sh -c "${removeCa}[ ! -f ${auth} ] || ${removeKey.replaceAll('$', '\\$')}; ` +
+    `sudo sh -c "${removeCa}[ ! -f ${auth} ] || ${removeKey.replaceAll('$', String.raw`\$`)}; ` +
     `grep -qs '${ENROLL_SSH_USER}@infraward:' ${auth} || ` +
-    `{ rm -f /etc/sudoers.d/infraward-${ENROLL_SSH_USER} /etc/infraward/sudoers-version ${INFRAWARD_QUERY_HELPER} ${LEGACY_PLESK_QUERY_HELPER}; ` +
+    `{ rm -f /etc/sudoers.d/infraward-${ENROLL_SSH_USER} /etc/infraward/sudoers-version /etc/infraward/podman-users ${INFRAWARD_QUERY_HELPER} ${LEGACY_PLESK_QUERY_HELPER}; ` +
     `rmdir /etc/infraward ${dirname(INFRAWARD_QUERY_HELPER)} 2>/dev/null; ` +
-    `grep -qsvE '^[[:space:]]*(#|\\$)' ${auth} || userdel -r ${ENROLL_SSH_USER}; }"`
+    String.raw`grep -qsvE '^[[:space:]]*(#|\$)' ${auth} || userdel -r ${ENROLL_SSH_USER}; }"`
   );
 }

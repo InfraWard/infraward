@@ -38,13 +38,6 @@ const connector = (extra: Partial<Connector> = {}): Connector => ({
   ...extra,
 });
 
-const noop = (): void => undefined;
-globalThis.ResizeObserver ??= class {
-  observe = noop;
-  unobserve = noop;
-  disconnect = noop;
-};
-
 function configure(component: unknown) {
   TestBed.configureTestingModule({
     imports: [component as never],

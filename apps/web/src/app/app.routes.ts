@@ -100,6 +100,12 @@ export const routes: Routes = [
           import('./features/activity/activity').then((m) => m.Activity),
       },
       {
+        path: 'activity/:id',
+        title: 'Ejecución · Actividad · InfraWard',
+        loadComponent: () =>
+          import('./features/activity/activity-run').then((m) => m.ActivityRun),
+      },
+      {
         path: 'vault',
         canMatch: [permissionGuard('vault.manage')],
         title: 'Caja fuerte · InfraWard',

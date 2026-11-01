@@ -2,6 +2,7 @@ import {
   expandQuery,
   INFRAWARD_QUERY_HELPER,
   NGINX_ROUTES_SCRIPT,
+  PODMAN_USERS_SCRIPT,
   PROCESS_PACKAGES_SCRIPT,
   SSHD_AUTH_SCRIPT,
   type PrivilegedQueryName,
@@ -37,7 +38,9 @@ describe('collect.yml', () => {
             ? PROCESS_PACKAGES_SCRIPT
             : a === '"{{ infraward_sshd_filter }}"'
               ? SSHD_AUTH_SCRIPT
-              : a,
+              : a === '"{{ infraward_podman_users_filter }}"'
+                ? PODMAN_USERS_SCRIPT
+                : a,
       ),
   }));
 
@@ -46,6 +49,8 @@ describe('collect.yml', () => {
       'pveversion',
       'plesk',
       'docker',
+      'podman',
+      'podman_users',
       'ss',
       'dmidecode',
       'nginx',
@@ -54,9 +59,14 @@ describe('collect.yml', () => {
     ]);
     for (const item of items) {
       expect(expandQuery({ name: item.query }), item.key).toEqual(item.argv);
-      // nginx: `sh -c <filtro> sh nginx -T`; procesos: `sh -c <script> sh` (sin comando).
+      // nginx: `sh -c <filtro> sh nginx -T`; procesos: `sh -c <script> sh` (sin comando). Los
+      // usuarios de Podman rootless (otro script) solo se miran donde hay Podman.
       expect(
-        item.argv[0] === 'sh' ? (item.argv[4] ?? 'sh') : item.argv[0],
+        item.key === 'podman_users'
+          ? 'podman'
+          : item.argv[0] === 'sh'
+            ? (item.argv[4] ?? 'sh')
+            : item.argv[0],
       ).toBe(item.bin);
     }
   });
@@ -65,6 +75,7 @@ describe('collect.yml', () => {
     expect(NGINX_ROUTES_SCRIPT).not.toMatch(/\{\{|\{%|\{#/);
     expect(PROCESS_PACKAGES_SCRIPT).not.toMatch(/\{\{|\{%|\{#/);
     expect(SSHD_AUTH_SCRIPT).not.toMatch(/\{\{|\{%|\{#/);
+    expect(PODMAN_USERS_SCRIPT).not.toMatch(/\{\{|\{%|\{#/);
   });
 
   it('por SSH, solo `sudo -n <ayudante> <consulta>`; nunca become', () => {

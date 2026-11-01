@@ -161,6 +161,7 @@ describe('ROLE_PERMISSIONS', () => {
         'secrets.status',
         'connectors.write',
         'vault.manage',
+        'findings.accept',
       ],
       operator: ['assets.operate'],
       auditor: ['secrets.status', 'audit.read', 'users.read'],
@@ -168,8 +169,8 @@ describe('ROLE_PERMISSIONS', () => {
     });
   });
 
-  it('solo admin purga, gestiona usuarios y revela credenciales de la caja fuerte', () => {
-    for (const p of ['assets.purge', 'users.manage', 'vault.admin'] as const)
+  it('solo admin purga, gestiona usuarios, revela credenciales y configura las alertas', () => {
+    for (const p of ['assets.purge', 'users.manage', 'vault.admin', 'alerts.manage'] as const)
       expect(USER_ROLES.filter((r) => ROLE_PERMISSIONS[r].includes(p))).toEqual(['admin']);
   });
 });

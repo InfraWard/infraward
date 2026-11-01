@@ -12,9 +12,11 @@ import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import {
   JOB_NAMES,
+  JOB_RUN_ORIGINS,
   JOB_RUN_STATE_FILTERS,
   type JobName,
   type JobRunListQuery,
+  type JobRunOrigin,
   type JobRunStateFilter,
   type JobRunSummary,
   type Page,
@@ -35,12 +37,17 @@ import { JobsApi } from '../../core/api/jobs-api';
 import { apiErrorMessage } from '../../shared/api-errors';
 import {
   ASSET_TYPE_ICONS,
+  bulkSummary,
   formatDuration,
   isRunning,
   JOB_ICONS,
   JOB_LABELS,
+  JOB_ORIGIN_HINTS,
+  JOB_ORIGIN_ICONS,
+  JOB_ORIGIN_LABELS,
   JOB_STATE_LABELS,
   JOB_STATE_SEVERITY,
+  parentLabel,
   type TagSeverity,
 } from '../../shared/labels';
 import { pollWhile } from '../../shared/poll';
@@ -74,11 +81,17 @@ export function workersSummary(workers: readonly WorkerReplica[]): {
 const UUID = /^[0-9a-f-]{36}$/i;
 
 /**
- * Filtros de la URL (`?state=failed&name=asset.collect&assetId=…&parentJobId=…`), validados.
- * `parentJobId`: las tareas de una operación en lote (o las que encadenó otra).
+ * Filtros de la URL (`?state=failed&name=asset.collect&origin=bulk&assetId=…&parentJobId=…`),
+ * validados. `parentJobId`: las tareas de una operación en lote (o las que encadenó otra).
  */
 export function activityQuery(
-  params: { state?: string; name?: string; assetId?: string; parentJobId?: string },
+  params: {
+    state?: string;
+    name?: string;
+    origin?: string;
+    assetId?: string;
+    parentJobId?: string;
+  },
   page: { offset: number; limit: number },
 ): JobRunListQuery {
   const state = (JOB_RUN_STATE_FILTERS as readonly string[]).includes(
@@ -91,7 +104,18 @@ export function activityQuery(
     : undefined;
   const assetId = UUID.test(params.assetId ?? '') ? params.assetId : undefined;
   const parentJobId = UUID.test(params.parentJobId ?? '') ? params.parentJobId : undefined;
-  return { state, name, assetId, parentJobId, limit: page.limit, offset: page.offset };
+  const origin = (JOB_RUN_ORIGINS as readonly string[]).includes(params.origin ?? '')
+    ? (params.origin as JobRunOrigin)
+    : undefined;
+  return {
+    state,
+    name,
+    ...(origin ? { origin } : {}),
+    assetId,
+    parentJobId,
+    limit: page.limit,
+    offset: page.offset,
+  };
 }
 
 type Loaded =
@@ -101,7 +125,9 @@ type Loaded =
 
 /**
  * Actividad del worker: recolecciones, descubrimientos, escaneos y verificaciones de alta, en
- * curso y recientes (historial de `job_runs`). Mientras haya algo pendiente se refresca sola.
+ * curso y recientes (historial de `job_runs`), con de dónde viene cada una (un lote, otra tarea,
+ * la comprobación periódica…). Cada fila abre su detalle con el log (`/activity/:id`). Mientras
+ * haya algo pendiente se refresca sola.
  */
 @Component({
   selector: 'app-activity',
@@ -129,6 +155,7 @@ export class Activity {
   /** Query params (enlazados por el router). */
   readonly state = input<string>();
   readonly name = input<string>();
+  readonly origin = input<string>();
   readonly assetId = input<string>();
   readonly parentJobId = input<string>();
 
@@ -141,8 +168,13 @@ export class Activity {
     JOB_STATE_SEVERITY;
   protected readonly typeIcons: Readonly<Record<string, string>> =
     ASSET_TYPE_ICONS;
+  protected readonly originLabels: Readonly<Record<string, string>> = JOB_ORIGIN_LABELS;
+  protected readonly originIcons: Readonly<Record<string, string>> = JOB_ORIGIN_ICONS;
+  protected readonly originHints: Readonly<Record<string, string>> = JOB_ORIGIN_HINTS;
   protected readonly duration = formatDuration;
   protected readonly isRunning = isRunning;
+  protected readonly parentLabel = parentLabel;
+  protected readonly bulkSummary = bulkSummary;
 
   protected readonly stateOptions = [
     { label: 'Todas', value: null },
@@ -156,6 +188,14 @@ export class Activity {
       .filter((n) => n !== JOB_NAMES.ping)
       .map((n) => ({ label: JOB_LABELS[n], value: n })),
   ];
+  protected readonly originOptions = [
+    { label: 'Cualquier origen', value: null },
+    ...JOB_RUN_ORIGINS.map((o) => ({
+      label: JOB_ORIGIN_LABELS[o],
+      value: o,
+      icon: JOB_ORIGIN_ICONS[o],
+    })),
+  ];
 
   protected readonly first = signal(0);
   protected readonly query = computed(() =>
@@ -163,6 +203,7 @@ export class Activity {
       {
         state: this.state(),
         name: this.name(),
+        origin: this.origin(),
         assetId: this.assetId(),
         parentJobId: this.parentJobId(),
       },
@@ -214,6 +255,20 @@ export class Activity {
     ),
     { initialValue: null },
   );
+  /**
+   * La operación o tarea cuyas tareas se están viendo (`?parentJobId=`), para el chip y su enlace.
+   * null mientras carga o si ya no está en el historial.
+   */
+  protected readonly parentRun = toSignal(
+    toObservable(computed(() => this.query().parentJobId)).pipe(
+      switchMap((id) =>
+        id
+          ? this.api.run(id).pipe(catchError(() => of(null)))
+          : of(null),
+      ),
+    ),
+    { initialValue: null },
+  );
   /** Nombre del asset filtrado (de las filas, para el chip). */
   protected readonly assetName = computed(
     () => this.page().items.find((r) => r.assetId === this.query().assetId)?.assetName ?? 'este asset',
@@ -222,6 +277,7 @@ export class Activity {
   setFilter(change: {
     state?: string | null;
     name?: string | null;
+    origin?: string | null;
     assetId?: null;
     parentJobId?: null;
   }): void {
@@ -229,6 +285,14 @@ export class Activity {
     void this.router.navigate([], {
       queryParams: change,
       queryParamsHandling: 'merge',
+    });
+  }
+
+  /** Un clic en la fila abre su detalle (salvo que sea en un enlace o un botón de la fila). */
+  openRun(run: JobRunSummary, event: MouseEvent): void {
+    if ((event.target as HTMLElement | null)?.closest('a, button')) return;
+    void this.router.navigate(['/activity', run.id], {
+      state: { fromActivity: true },
     });
   }
 

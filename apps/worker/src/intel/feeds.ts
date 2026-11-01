@@ -181,7 +181,7 @@ export function parseEpss(body: Buffer): EpssScores {
     const cve = cells[columns.indexOf('cve')]?.trim().toUpperCase() ?? '';
     const epss = Number(cells[columns.indexOf('epss')]);
     const pctCell = cells[columns.indexOf('percentile')]?.trim();
-    const pct = pctCell ? Number(pctCell) : NaN;
+    const pct = pctCell ? Number(pctCell) : Number.NaN;
     if (!CVE_ID_PATTERN.test(cve) || !(epss >= 0 && epss <= 1)) continue;
     rows.push({
       vulnerabilityId: cve,

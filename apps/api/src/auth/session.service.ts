@@ -111,7 +111,7 @@ export class SessionService {
   /** Sesión viva (sin caducar) de un usuario, por id: el callback OIDC de una reautenticación. */
   async findActive(sessionId: string, userId: string): Promise<UserSession | null> {
     const session = await this.sessions.findOneBy({ id: sessionId, userId });
-    if (!session || session.purpose !== 'full') return null;
+    if (session?.purpose !== 'full') return null;
     const now = Date.now();
     const idleMs = this.config.get('SESSION_IDLE_TTL', { infer: true }) * 1000;
     if (

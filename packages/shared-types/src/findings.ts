@@ -37,6 +37,54 @@ export function severitiesAtLeast(min: Severity): Severity[] {
 export const FINDING_STATUSES = ['open', 'fixed', 'accepted'] as const;
 export type FindingStatus = (typeof FINDING_STATUSES)[number];
 
+/** Longitud del motivo al aceptar el riesgo (obligatorio: queda en la auditoría). */
+export const FINDING_ACCEPT_REASON_MIN = 10;
+export const FINDING_ACCEPT_REASON_MAX = 1000;
+/** Caducidad máxima de una aceptación (días); sin fecha, no caduca. */
+export const FINDING_ACCEPT_MAX_DAYS = 365;
+/** Findings que se aceptan o reabren como mucho en una operación. */
+export const FINDING_ACCEPT_MAX = 5000;
+
+/**
+ * Riesgo aceptado de un finding: quién, cuándo, por qué y hasta cuándo. Se conserva al reabrirlo
+ * (historial de la última aceptación); solo describe el estado actual si `status = 'accepted'`.
+ */
+export interface FindingAcceptance {
+  /** Email de quien lo aceptó (null si fue una API sin usuario). */
+  by: string | null;
+  at: string;
+  reason: string;
+  /** Al llegar, el worker lo reabre (`open`); null: no caduca. */
+  expiresAt: string | null;
+}
+
+/**
+ * Aceptar el riesgo: por findings o por CVE (todos los findings abiertos de esos CVE, como la
+ * acción en lote de la lista; con `projectId`, solo los de assets del proyecto).
+ */
+export interface AcceptFindingsRequest {
+  findingIds?: string[];
+  vulnerabilityIds?: string[];
+  projectId?: string;
+  reason: string;
+  /** ISO; futura y como mucho a `FINDING_ACCEPT_MAX_DAYS`. Sin ella, no caduca. */
+  expiresAt?: string | null;
+}
+
+/** Reabrir findings aceptados: por findings o por CVE. */
+export interface ReopenFindingsRequest {
+  findingIds?: string[];
+  vulnerabilityIds?: string[];
+  projectId?: string;
+}
+
+export interface FindingAcceptanceResult {
+  /** Findings que cambiaron de estado. */
+  updated: number;
+  /** CVE distintos de esos findings. */
+  vulnerabilities: number;
+}
+
 /**
  * Estado del escaneo de una imagen: `skipped` = no escaneada por un motivo conocido (tamaño,
  * tiempo, sudoers desactualizado…), no es un fallo; `failed` = error al escanear.
@@ -131,6 +179,8 @@ export interface Finding {
   priority: PriorityInfo | null;
   /** Por qué sale de la vista principal (kernel no en uso, sin corrección prevista). */
   noiseReason: NoiseReason | null;
+  /** La última aceptación del riesgo (vigente si `status = 'accepted'`). */
+  acceptance: FindingAcceptance | null;
 }
 
 /** Finding de la búsqueda global, con los assets a los que afecta. */
@@ -214,6 +264,8 @@ export interface VulnerablePackage {
   status: FindingStatus;
   priority: number | null;
   noiseReason: NoiseReason | null;
+  /** La última aceptación del riesgo (vigente si `status = 'accepted'`). */
+  acceptance?: FindingAcceptance | null;
 }
 
 /** Findings agrupados por vulnerabilidad: un CVE con todos los paquetes en los que aparece. */
@@ -244,6 +296,11 @@ export interface AssetVulnerabilitiesPage {
   sbom: SbomSummary | null;
   /** El asset sirve (o deja pasar) nombres públicos (QoL-5b). null si no. */
   exposure?: PublicExposure | null;
+  /**
+   * Con `includeNoise=false`: findings del asset que el filtro deja fuera por ser ruido (kernel no
+   * en uso, sin corrección prevista), por motivo. null (o ausente) si no se quitó el ruido.
+   */
+  hidden?: Partial<Record<NoiseReason, number>> | null;
 }
 
 export interface ScanAssetResponse {

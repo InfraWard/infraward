@@ -55,6 +55,10 @@ import {
   PriorityInfoDto,
 } from './priority.dto.js';
 import { SbomSummaryDto } from './sboms.dto.js';
+import {
+  ACCEPTANCE_PROPERTY,
+  FindingAcceptanceDto,
+} from './finding-acceptance.dto.js';
 
 export class FindingListQueryDto
   extends PageQueryDto
@@ -140,7 +144,7 @@ export class FindingListQueryDto
 
   @ApiPropertyOptional({
     description:
-      'true: también el ruido (kernel no en uso, sin corrección prevista), que por defecto sale de las listas globales',
+      'true: también el ruido (kernel no en uso, sin corrección prevista), que por defecto sale de las listas globales. En /assets/:id/vulnerabilities el ruido sale salvo con includeNoise=false',
   })
   @IsOptional()
   @Transform(({ value }: { value: unknown }) =>
@@ -289,6 +293,9 @@ export class FindingDto implements Finding {
 
   @ApiProperty(NOISE_REASON_PROPERTY)
   noiseReason: NoiseReason | null;
+
+  @ApiProperty(ACCEPTANCE_PROPERTY)
+  acceptance: FindingAcceptanceDto | null;
 }
 
 export class AffectedAssetDto implements AffectedAsset {
@@ -432,6 +439,9 @@ export class VulnerablePackageDto implements VulnerablePackage {
 
   @ApiProperty(NOISE_REASON_PROPERTY)
   noiseReason: NoiseReason | null;
+
+  @ApiPropertyOptional(ACCEPTANCE_PROPERTY)
+  acceptance?: FindingAcceptanceDto | null;
 }
 
 export class VulnerabilityGroupDto implements VulnerabilityGroup {
@@ -515,6 +525,14 @@ export class AssetVulnerabilitiesPageDto implements AssetVulnerabilitiesPage {
     description: 'El asset sirve o deja pasar nombres públicos',
   })
   exposure?: PublicExposureDto | null;
+
+  @ApiProperty({
+    ...HIDDEN_PROPERTY,
+    required: false,
+    description:
+      'Con includeNoise=false: findings que quedan fuera por ruido (kernel no en uso, sin corrección prevista), por motivo',
+  })
+  hidden?: HiddenCountsDto | null;
 }
 
 export class ScanAssetResponseDto implements ScanAssetResponse {

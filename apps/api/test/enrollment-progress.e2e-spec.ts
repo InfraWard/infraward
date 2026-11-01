@@ -497,7 +497,16 @@ describe('Progreso del alta por SSE (e2e)', () => {
     expect(
       res.json<{ reportedHostKeys: unknown[] }>().reportedHostKeys,
     ).toEqual([{ type: 'ED25519', fingerprint: OTHER_FP }]);
-    const failed = await until(reader, 'failed');
+    await until(reader, 'failed');
+    // La fase la marca el worker al fallar; el estado de la ejecución lo escribe después el líder
+    // con los eventos de la cola (llega en otro `progress`).
+    await waitFor(
+      () => !!reader.last()?.jobs.length && reader.last()!.jobs.every((j) => j.state === 'failed'),
+      30_000,
+      () => `ejecuciones: ${JSON.stringify(reader.last()?.jobs)}`,
+    );
+    const failed = reader.last()!;
+    expect(failed.phase).toBe('failed');
     expect(failed.enrollment.error).toMatch(/posible suplantación/);
     expect(failed.assetStatus).toBe('pending_enrollment');
     expect(failed.jobs.map((j) => [j.name, j.state])).toEqual([

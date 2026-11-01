@@ -185,7 +185,7 @@ export class SecretsService implements OnModuleDestroy {
 
   async onModuleDestroy(): Promise<void> {
     this.clearCache();
-    await Promise.all(this.providers.map((p) => p.close?.()));
+    await Promise.all(this.providers.map((p) => p.close?.() ?? Promise.resolve()));
   }
 
   /** Quita de la caché todos los campos de una ruta. */

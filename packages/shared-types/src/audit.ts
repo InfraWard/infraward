@@ -86,6 +86,12 @@ export const AUDIT_ACTIONS = [
   'terminal.session_revoked',
   'access.granted',
   'access.revoked',
+  'finding.accepted',
+  'finding.reopened',
+  'alerts.channel_created',
+  'alerts.channel_updated',
+  'alerts.channel_deleted',
+  'alerts.channel_tested',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 

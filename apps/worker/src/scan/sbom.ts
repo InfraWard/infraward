@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { TrivyError } from './trivy-report.js';
+import { byCodeUnit } from '@infraward/shared-types';
 
 /** Tamaño máximo de un SBOM (JSON sin comprimir). Una imagen grande ronda unos pocos MB. */
 export const MAX_SBOM_BYTES = 64 * 1024 * 1024;
@@ -7,7 +8,7 @@ export const MAX_SBOM_BYTES = 64 * 1024 * 1024;
 const MAX_COMPONENTS = 200_000;
 
 /** Propiedades que no se guardan: las etiquetas de la imagen pueden llevar secretos (§8). */
-const DROPPED_PROPERTY = /^aquasecurity:trivy:Labels:/;
+const DROPPED_PROPERTY_PREFIX = 'aquasecurity:trivy:Labels:';
 
 /** Paquete del SBOM, como se guarda en `packages`. */
 export interface SbomPackage {
@@ -50,7 +51,7 @@ export function parseCycloneDx(json: string): ParsedSbom {
   }
   const bom = record(doc);
   const specVersion = str(bom?.specVersion, 16);
-  if (!bom || bom.bomFormat !== 'CycloneDX' || !specVersion)
+  if (bom?.bomFormat !== 'CycloneDX' || !specVersion)
     throw new TrivyError('SBOM de Trivy no reconocido (CycloneDX)');
   delete bom.vulnerabilities;
 
@@ -58,7 +59,7 @@ export function parseCycloneDx(json: string): ParsedSbom {
   const main = record(metadata?.component);
   if (main && Array.isArray(main.properties))
     main.properties = main.properties.filter(
-      (p) => !DROPPED_PROPERTY.test(String(record(p)?.name ?? '')),
+      (p) => !String(record(p)?.name ?? '').startsWith(DROPPED_PROPERTY_PREFIX),
     );
   const trivy = (
     (record(metadata?.tools)?.components as unknown[] | undefined) ?? []
@@ -82,7 +83,7 @@ export function parseCycloneDx(json: string): ParsedSbom {
     if (pkg) seen.set(packageKey(pkg), pkg);
   }
   const packages = [...seen.values()];
-  const lines = packages.map(packageKey).sort();
+  const lines = packages.map(packageKey).sort(byCodeUnit);
   if (os) lines.unshift(`os\0${os.family}\0${os.name}`);
   return {
     json: JSON.stringify(bom),

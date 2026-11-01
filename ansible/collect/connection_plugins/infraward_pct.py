@@ -35,7 +35,7 @@ DOCUMENTATION = _SSH_DOCUMENTATION.replace(
     1,
 )
 
-_VMID = re.compile(r"^[1-9][0-9]{2,8}$")
+_VMID = re.compile(r"^[1-9]\d{2,8}$", re.ASCII)
 # Ayudante de root del nodo (INFRAWARD_QUERY_HELPER en packages/connectors/src/privileged.ts).
 _HELPER = "/usr/local/libexec/infraward/infraward-query"
 

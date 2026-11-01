@@ -19,6 +19,7 @@ import {
   type JobData,
   type JobName,
   type JobResult,
+  type JobRunTrigger,
   type JobProgressEvent,
   type JobState,
   type JobStatus,
@@ -119,12 +120,17 @@ export class JobsService implements OnModuleDestroy {
   /**
    * Encola un job. Con `deduplicationId`, si ya hay uno pendiente o en curso con ese id no se
    * crea otro: se devuelve el existente (`deduplicated`). `parentJobId`: la operación en lote que
-   * lo lanza (QoL-6), para verlos juntos en la Actividad.
+   * lo lanza (QoL-6), para verlos juntos en la Actividad. `trigger`: qué lo lanzó si no cuelga de
+   * nada (por omisión, una petición a la API).
    */
   async enqueue<N extends JobName>(
     name: N,
     data: JobData<N>,
-    options: { deduplicationId?: string; parentJobId?: string } = {},
+    options: {
+      deduplicationId?: string;
+      parentJobId?: string;
+      trigger?: JobRunTrigger;
+    } = {},
   ): Promise<EnqueueJobResponse> {
     const queue = JOB_QUEUES[name];
     // UUID como jobId: único entre colas, así basta el id para consultar el estado.
@@ -140,6 +146,7 @@ export class JobsService implements OnModuleDestroy {
       this.db.manager,
       job,
       options.parentJobId ?? null,
+      options.trigger ?? 'manual',
     ).catch((error: unknown) =>
       this.logger.warn(
         `No se pudo registrar el job ${job.id}: ${(error as Error).message}`,
@@ -188,9 +195,9 @@ export class JobsService implements OnModuleDestroy {
   }
 
   /** Estado de un job en BullMQ ('unknown' si ya no existe). */
-  async state(id: string, queueName: string): Promise<JobState> {
+  state(id: string, queueName: string): Promise<JobState> {
     const queue = this.queues[queueName];
-    return queue ? queue.getJobState(id) : 'unknown';
+    return queue ? queue.getJobState(id) : Promise.resolve('unknown');
   }
 
   async status(id: string): Promise<JobStatus> {
@@ -231,7 +238,7 @@ export class JobsService implements OnModuleDestroy {
     const queue = this.queues[JOB_QUEUES[name]];
     const state = await queue.getJobState(id);
     const job = (await queue.getJob(id)) as Job | undefined;
-    if (!job || job.name !== name) return null;
+    if (job?.name !== name) return null;
     const { logs } = await queue.getJobLogs(id, -1, -1);
     return {
       id,

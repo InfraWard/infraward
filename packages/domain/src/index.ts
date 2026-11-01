@@ -1,3 +1,4 @@
+import { AlertChannel } from './alert-channel.entity.js';
 import { AppSetting } from './app-setting.entity.js';
 import { AssetRelation } from './asset-relation.entity.js';
 import { Asset } from './asset.entity.js';
@@ -8,6 +9,7 @@ import { ExpiryAlert } from './expiry-alert.entity.js';
 import { Finding } from './finding.entity.js';
 import { InventoryPolicy } from './inventory-policy.entity.js';
 import { JobRun } from './job-run.entity.js';
+import { JobRunLog } from './job-run-log.entity.js';
 import { MetricSample } from './metric-sample.entity.js';
 import { Notification } from './notification.entity.js';
 import { Package } from './package.entity.js';
@@ -17,6 +19,7 @@ import { DnsServicePath, NatForward } from './service-path.entity.js';
 import { Snapshot } from './snapshot.entity.js';
 import { IntelFeed, VulnerabilityIntel } from './vulnerability-intel.entity.js';
 
+export * from './alert-channel.entity.js';
 export * from './app-setting.entity.js';
 export * from './asset-relation.entity.js';
 export * from './asset-graph.js';
@@ -31,6 +34,7 @@ export * from './finding-view.js';
 export * from './inventory-policy.entity.js';
 export * from './inventory-policy.js';
 export * from './job-run.entity.js';
+export * from './job-run-log.entity.js';
 export * from './job-runs.js';
 export * from './metric-sample.entity.js';
 export * from './notification.entity.js';
@@ -55,6 +59,7 @@ export const DOMAIN_ENTITIES = [
   ContainerImage,
   Finding,
   JobRun,
+  JobRunLog,
   Sbom,
   Package,
   InventoryPolicy,
@@ -70,4 +75,5 @@ export const DOMAIN_ENTITIES = [
   VulnerabilityIntel,
   IntelFeed,
   MetricSample,
+  AlertChannel,
 ];

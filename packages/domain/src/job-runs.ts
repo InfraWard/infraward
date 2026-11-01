@@ -1,4 +1,4 @@
-import type { JobName, QueueName } from '@infraward/shared-types';
+import type { JobName, JobRunTrigger, QueueName } from '@infraward/shared-types';
 import type { EntityManager } from 'typeorm';
 
 /** Lo que hace falta de un job de BullMQ para registrarlo (sin depender de bullmq). */
@@ -51,19 +51,22 @@ export async function jobAssetId(
 }
 
 /**
- * Registra un job recién encolado. Si ya existe (BullMQ devolvió el que estaba en cola por la
- * deduplicación, o el worker se adelantó), no lo toca.
+ * Registra un job recién encolado, con el job o lote del que cuelga o, si no cuelga de nada, qué
+ * lo lanzó (`trigger`). Si ya existe (BullMQ devolvió el que estaba en cola por la deduplicación,
+ * o el worker se adelantó), no lo toca.
  */
 export async function recordQueuedJob(
   manager: EntityManager,
   job: RecordableJob,
   parentJobId: string | null = null,
+  trigger: JobRunTrigger | null = null,
 ): Promise<void> {
   if (!job.id) return;
   const assetId = await jobAssetId(manager, job.name, job.data);
   await manager.query(
-    `INSERT INTO job_runs (id, name, queue, asset_id, asset_name, state, parent_job_id, created_at)
-     SELECT $1, $2, $3, a.id, a.name, 'queued', $5, to_timestamp($6 / 1000.0)
+    `INSERT INTO job_runs (id, name, queue, asset_id, asset_name, state, parent_job_id, trigger,
+                           created_at)
+     SELECT $1, $2, $3, a.id, a.name, 'queued', $5, $7, to_timestamp($6 / 1000.0)
        FROM (SELECT 1) one LEFT JOIN assets a ON a.id = $4
      ON CONFLICT (id) DO NOTHING`,
     [
@@ -73,6 +76,7 @@ export async function recordQueuedJob(
       assetId,
       parentJobId,
       job.timestamp,
+      parentJobId ? null : trigger,
     ],
   );
 }

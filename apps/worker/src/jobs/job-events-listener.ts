@@ -75,13 +75,16 @@ export class JobEventsListener {
 
   /** Espera a que se registren los eventos pendientes (tests y parada). */
   async flush(): Promise<void> {
-    await Promise.all([...this.pending.values()]);
+    await Promise.all(this.pending.values());
   }
 
   attach(name: QueueName, queue: Queue, events: QueueEvents): void {
     const on = (
       event: string,
-      update: (job: Job, args: Record<string, unknown>) => Promise<JobRunUpdate | null>,
+      update: (
+        job: Job,
+        args: Record<string, unknown>,
+      ) => JobRunUpdate | null | Promise<JobRunUpdate | null>,
     ) =>
       events.on(event as 'active', (args: unknown, id: string) => {
         this.cursors.set(name, id);
@@ -95,7 +98,7 @@ export class JobEventsListener {
         });
       });
 
-    on('active', async (job) => ({
+    on('active', (job) => ({
       state: 'active',
       started: true,
       worker: job.processedBy ?? null,
@@ -109,14 +112,14 @@ export class JobEventsListener {
           }
         : null,
     );
-    on('completed', async () => ({
+    on('completed', () => ({
       state: 'completed',
       progress: 100,
       finished: true,
     }));
-    on('failed', async (job) => failedUpdate(job));
+    on('failed', (job) => failedUpdate(job));
     // Reintento con espera, host ocupado o devuelto al parar (el motivo lo anota quien lo movió).
-    on('delayed', async () => ({ state: 'queued' }));
+    on('delayed', () => ({ state: 'queued' }));
     events.on('stalled', (args: { jobId: string }, id: string) => {
       this.cursors.set(name, id);
       if (!isTrackedJobId(args.jobId)) return;

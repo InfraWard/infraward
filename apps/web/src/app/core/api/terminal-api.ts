@@ -6,6 +6,7 @@ import type {
   AssetTerminalStatus,
   CreateAccessPolicyRequest,
   CreateTerminalSessionResponse,
+  TerminalAction,
 } from '@infraward/shared-types';
 import type { Observable } from 'rxjs';
 import { API_BASE_URL } from './api-base-url';
@@ -23,11 +24,18 @@ export class TerminalApi {
     );
   }
 
-  /** Ticket de un solo uso (pide reautenticación si caducó: lo resuelve el interceptor). */
-  open(assetId: string): Observable<CreateTerminalSessionResponse> {
-    return this.http.post<CreateTerminalSessionResponse>(`${this.api}/terminal/sessions`, {
-      assetId,
-    });
+  /**
+   * Ticket de un solo uso (pide reautenticación si caducó: lo resuelve el interceptor). Con
+   * `action`, la sesión ejecuta ese comando fijo en solo lectura en lugar de la shell.
+   */
+  open(
+    assetId: string,
+    action: TerminalAction | null = null,
+  ): Observable<CreateTerminalSessionResponse> {
+    return this.http.post<CreateTerminalSessionResponse>(
+      `${this.api}/terminal/sessions`,
+      action ? { assetId, action } : { assetId },
+    );
   }
 
   rules(filter: { assetId?: string } = {}): Observable<AccessPolicyRule[]> {

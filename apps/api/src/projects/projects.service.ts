@@ -31,6 +31,7 @@ import { DataSource, In, type EntityManager } from 'typeorm';
 import type { AuditActor } from '../audit/audit-context.decorator.js';
 import { AuditService } from '../audit/audit.service.js';
 import { toAssetSummary } from '../assets/assets.mapper.js';
+import { countsInSummarySql } from '../assets/open-findings.js';
 import { isUniqueViolation } from '../database/pg-errors.js';
 import type { CreateProjectDto, UpdateProjectDto } from './projects.dto.js';
 
@@ -361,7 +362,7 @@ export class ProjectsService {
    * transacción con el recálculo de la política. Las reglas por etiqueta (de política y de
    * acceso) se conservan: vuelven a valer si alguien pone otra vez el tag.
    */
-  async deleteTag(tag: string, actor: AuditActor): Promise<{ assets: number }> {
+  deleteTag(tag: string, actor: AuditActor): Promise<{ assets: number }> {
     return this.db.transaction(async (m) => {
       const rows: { id: string }[] = await m.query(
         `WITH changed AS (
@@ -386,8 +387,8 @@ export class ProjectsService {
   // --- Resumen ---
 
   /**
-   * Assets no retirados por tipo y findings abiertos (de dueños que escanean) de cada proyecto,
-   * con lo heredado: una consulta por métrica para todos los proyectos a la vez.
+   * Assets no retirados por tipo y findings abiertos (de dueños que escanean, sin los de un kernel
+   * que no está en ejecución) de cada proyecto, con lo heredado: una consulta por métrica para todos los proyectos a la vez.
    */
   private async stats(ids: string[]): Promise<Map<string, ProjectStats>> {
     const result = new Map<string, ProjectStats>(
@@ -412,6 +413,7 @@ export class ProjectsService {
            FROM findings f JOIN assets o ON o.id = f.asset_id,
                 unnest(o.effective_projects) AS p
           WHERE f.status = 'open' AND o.status <> 'retired' AND ${scanEnabledSql('o')}
+            AND ${countsInSummarySql()}
             AND p = ANY($1::uuid[])
           GROUP BY p, f.severity`,
         [ids],
@@ -421,6 +423,7 @@ export class ProjectsService {
            FROM findings f JOIN assets o ON o.id = f.asset_id,
                 unnest(o.effective_projects) AS p
           WHERE f.status = 'open' AND o.status <> 'retired' AND ${scanEnabledSql('o')}
+            AND ${countsInSummarySql()}
             AND p = ANY($1::uuid[])
           GROUP BY p`,
         [ids],

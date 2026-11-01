@@ -53,6 +53,17 @@ export type OidcCallbackResult =
 /** Margen para `auth_time` frente al inicio del flujo de reautenticación (relojes). */
 const AUTH_TIME_SKEW_MS = 5_000;
 
+/**
+ * `max_age` de la reautenticación (step-up). No 0: Authentik ignora `max_age=0` (lo trata como
+ * ausente) y su `prompt=login` solo vuelve a pedir las credenciales la primera vez en cada sesión
+ * del navegador (goauthentik/authentik#18507); a partir de la segunda devolvía el `auth_time` del
+ * login anterior y la reautenticación fallaba (`auth_time_stale`). Con un `max_age` positivo
+ * Authentik sí obliga a entrar de nuevo si el último login es más antiguo. Pequeño, pero con margen
+ * para que la vuelta del login al endpoint de autorización no lo supere (y vuelva a pedirlo). Lo que
+ * decide sigue siendo `auth_time`, posterior al inicio del flujo.
+ */
+export const OIDC_REAUTH_MAX_AGE_SECONDS = 30;
+
 /** Sesión que pide reautenticarse con el proveedor (GET /auth/oidc/reauth). */
 export interface OidcReauthRequest {
   sessionId: string;
@@ -90,7 +101,7 @@ function authTimeOf(claims: client.IDToken): Date | null {
 
 /** Ruta de vuelta con `reauth=ok|failed` (la web avisa y lo quita de la URL). */
 export function withReauthResult(path: string, result: 'ok' | 'failed'): string {
-  const url = new URL(path, 'http://web.invalid');
+  const url = new URL(path, 'https://web.invalid');
   url.searchParams.set('reauth', result);
   return url.pathname + url.search + url.hash;
 }
@@ -150,7 +161,7 @@ export class OidcService {
   /**
    * Empieza el flujo: guarda state, nonce y verifier y devuelve adónde mandar al navegador. Con
    * `reauth`, es una reautenticación (step-up) de esa sesión: el proveedor debe pedir otra vez
-   * las credenciales (`prompt=login`, `max_age=0`) y a la vuelta se comprueba `auth_time`.
+   * las credenciales (`prompt=login` y `max_age`) y a la vuelta se comprueba `auth_time`.
    */
   async begin(
     returnUrl: unknown,
@@ -176,7 +187,9 @@ export class OidcService {
       nonce,
       code_challenge: await client.calculatePKCECodeChallenge(codeVerifier),
       code_challenge_method: 'S256',
-      ...(reauth ? { prompt: 'login', max_age: '0' } : {}),
+      ...(reauth
+        ? { prompt: 'login', max_age: String(OIDC_REAUTH_MAX_AGE_SECONDS) }
+        : {}),
     });
     return { authorizationUrl: url.href, bindingToken };
   }
@@ -221,8 +234,8 @@ export class OidcService {
         sessionToken: token,
         redirectUrl: settings.webOrigin + returnUrl,
       };
-    } catch (caught) {
-      let error = caught;
+    } catch (error_) {
+      let error = error_;
       if (error instanceof OidcFailureWithFlow) {
         flow = error.flow;
         error = error.failure;

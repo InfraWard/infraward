@@ -822,7 +822,7 @@ function alive(pid: number): boolean {
 export function shellQuote(arg: string): string {
   return /^[A-Za-z0-9_./=:,@+-]+$/.test(arg)
     ? arg
-    : `'${arg.replace(/'/g, `'\\''`)}'`;
+    : `'${arg.replaceAll("'", String.raw`'\''`)}'`;
 }
 
 /** Última línea útil de stderr (p. ej. `Permission denied (publickey).`), recortada. */

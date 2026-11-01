@@ -14,7 +14,7 @@
 <div class="overview">
   <div class="main">
     @if (row(); as r) {
-      @if (r.worst || a.type === 'container' || a.type === 'image') {
+      @if (r.worst || r.kernelNotRunning || a.type === 'container' || a.type === 'image') {
         <p-card styleClass="card" data-section="vulns">
           <ng-template #title><i class="bi bi-shield-exclamation" aria-hidden="true"></i> Vulnerabilidades</ng-template>
           @if (r.worst; as worst) {
@@ -28,6 +28,9 @@
               }
             </p>
             <p class="muted small">{{ r.findingsSummary }}</p>
+            @if (r.kernelNotRunning) {
+              <p class="muted small" data-kernel-not-running>{{ kernelNotRunningLabel(r.kernelNotRunning) }}</p>
+            }
             <p-button
               label="Ver vulnerabilidades"
               icon="bi bi-arrow-right"
@@ -39,6 +42,9 @@
             />
           } @else {
             <p class="muted">Sin vulnerabilidades abiertas conocidas.</p>
+            @if (r.kernelNotRunning) {
+              <p class="muted small" data-kernel-not-running>{{ kernelNotRunningLabel(r.kernelNotRunning) }}</p>
+            }
           }
         </p-card>
       }
@@ -252,7 +258,7 @@
     @if (docker(); as d) {
       @if (dockerTotal()) {
         <p-card styleClass="card" data-section="docker">
-          <ng-template #title><i class="bi bi-boxes" aria-hidden="true"></i> Docker: volúmenes, redes e imágenes</ng-template>
+          <ng-template #title><i class="bi bi-boxes" aria-hidden="true"></i> {{ engineLabel() }}: volúmenes, redes e imágenes</ng-template>
           <div class="docker-lists">
             @for (group of [
               { key: 'volumes', title: 'Volúmenes', items: d.volumes },
@@ -285,6 +291,10 @@
           </div>
         </p-card>
       }
+    }
+
+    @if (showPodmanUsers()) {
+      <app-podman-users [asset]="a" />
     }
 
     @if (services().relevant.length || services().hidden) {

@@ -534,7 +534,7 @@ export class DiscoveryProcessor {
   ): Promise<IdentityCandidate[]> {
     const machineId = facts.machineId;
     if (!machineId) return Promise.resolve([]);
-    const clones = `${machineId.replace(/[\\%_]/g, '\\$&')}${CLONE_KEY_SEPARATOR}%`;
+    const clones = `${machineId.replace(/[\\%_]/g, String.raw`\$&`)}${CLONE_KEY_SEPARATOR}%`;
     return m.find(Asset, {
       where: [
         { type: asset.type, naturalKey: machineId },
@@ -703,16 +703,28 @@ export class DiscoveryProcessor {
       const jobId = await this.enqueueCollect(childId, job.id, trigger);
       if (jobId) collectJobIds.push(jobId);
     }
-    // Contenedores: cada imagen nueva se escanea una vez; las ya escaneadas solo se enlazan.
+    // Contenedores: cada imagen nueva se escanea una vez; las ya escaneadas solo se enlazan. Con
+    // Docker y Podman en el mismo host, las imágenes de los dos (`stores` es por host): solo se
+    // quitan las que ya no están si los dos listados están completos y ninguno falló.
     let scanJobIds: string[] = [];
-    const docker = listings.find(
-      (l): l is { discoverer: Discoverer; listing: DiscoveryListing } =>
-        !('error' in l) && l.discoverer.childTypes.includes('container'),
+    const engines = listings.filter(
+      (l) => l.discoverer.childTypes.includes('container'),
     );
-    if (docker)
+    const listed = engines.filter(
+      (l): l is { discoverer: Discoverer; listing: DiscoveryListing } =>
+        !('error' in l),
+    );
+    if (listed.length > 0)
       scanJobIds = await this.scans.afterDiscovery(
         parent.id,
-        docker.listing.hostImages,
+        listed.length === 1 && engines.length === 1
+          ? listed[0].listing.hostImages
+          : {
+              images: listed.flatMap((l) => l.listing.hostImages?.images ?? []),
+              complete:
+                engines.length === listed.length &&
+                listed.every((l) => l.listing.hostImages?.complete === true),
+            },
         job.id,
       );
     const collectQueued = collectJobIds.length;

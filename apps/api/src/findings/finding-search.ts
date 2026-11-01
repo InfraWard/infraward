@@ -123,7 +123,7 @@ function ipsSql(a: string): string {
     ) ips WHERE v IS NOT NULL`;
 }
 
-const IPV4_SQL = `'^(25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])(\\.(25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])){3}$'`;
+const IPV4_SQL = String.raw`'^(25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])(\.(25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])){3}$'`;
 
 function assetCondition(
   key: SearchKey,

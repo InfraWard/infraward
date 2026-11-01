@@ -5,14 +5,13 @@ import {
   type TerminalServerMessage,
 } from '@infraward/shared-types';
 import type { WebSocket, RawData } from 'ws';
-import type { SlotLease } from '../jobs/host-slots.js';
+import type { HostSlots, SlotLease } from '../jobs/host-slots.js';
 import { HostKeyMismatchError } from '../ssh/host-keys.js';
 import type { PtyProcess } from '../ssh/pty-bridge.js';
 import type { SshClient } from '../ssh/ssh-client.js';
 import { GatewayApiError, type GatewayApiClient } from './gateway-api.client.js';
 import { InteractiveRouteError, type InteractiveRoutes } from './interactive-routes.js';
 import type { PinnedHostKeys } from './pinned-host-keys.js';
-import type { HostSlots } from '../jobs/host-slots.js';
 
 /** Plazo para que el cliente mande el ticket tras conectar. */
 const AUTH_TIMEOUT_MS = 10_000;
@@ -62,7 +61,7 @@ export class TerminalSession {
   private pty: PtyProcess | null = null;
   private reason: TerminalCloseReason | null = null;
   private closeMessage: string | undefined;
-  private leases: SlotLease[] = [];
+  private readonly leases: SlotLease[] = [];
   private renewTimer?: NodeJS.Timeout;
   private idleTimer?: NodeJS.Timeout;
   private idleWarnTimer?: NodeJS.Timeout;
@@ -72,6 +71,8 @@ export class TerminalSession {
   /** Registro de la apertura en la API, en curso o hecho (con la salida temprana ya enviada). */
   private opening: Promise<boolean> | null = null;
   private starting = false;
+  /** Acción de solo lectura: la entrada del cliente no llega al PTY. */
+  private readOnly = false;
   private finished = false;
   /** La persona tecleó desde el último latido (mantiene viva su sesión web). */
   private activity = false;
@@ -179,7 +180,12 @@ export class TerminalSession {
           `Ya tienes ${user.running} terminales abiertas (máximo ${this.deps.limits.perUser})`,
         );
       this.leases.push(user.lease);
-      const route = await this.deps.routes.resolve(session.assetId, session.account);
+      const route = await this.deps.routes.resolve(
+        session.assetId,
+        session.account,
+        session.action ?? null,
+      );
+      this.readOnly = route.readOnly;
       this.check();
       const host = await this.deps.slots.acquireTerminal(
         { host: route.host.id },
@@ -302,9 +308,17 @@ export class TerminalSession {
     // Se cerró mientras esperaba a la API (el cliente se fue, se revocó o el gateway se para).
     if (this.reason) return false;
     this.opened = true;
-    this.send({ type: 'ready', sessionId: this.sessionId!, asset: assetName, account });
+    this.send({
+      type: 'ready',
+      sessionId: this.sessionId!,
+      asset: assetName,
+      account,
+      ...(this.readOnly ? { readOnly: true } : {}),
+    });
     this.ws.on('message', (data, isBinary) => {
       if (isBinary) {
+        // Acción de solo lectura: se ve el comando y su salida, pero no se le escribe nada.
+        if (this.readOnly) return;
         // Solo lo que teclea la persona cuenta como uso de su sesión web (la salida, no).
         this.activity = true;
         this.touch();

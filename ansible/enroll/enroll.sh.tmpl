@@ -8,6 +8,9 @@
 #               Para servidores que no llegan a la API (VPN, NAT). No lleva token ni avisa a nadie:
 #               imprime las huellas de las host keys para pegarlas en InfraWard.
 # Opciones: --install-sudo instala sudo si falta (Proxmox no lo trae); solo si se pide.
+#           --podman-users=<usuario,…> (opcional) fija a mano los usuarios de Podman rootless que se
+#           inventarían (/etc/infraward/podman-users; vacío la vacía). Sin ella no se toca la lista:
+#           lo normal es que InfraWard los detecte solo y se habiliten desde la ficha del servidor.
 #
 # Crea el usuario dedicado `inventory`, el ayudante de root `infraward-query` (lista cerrada de
 # consultas de SOLO LECTURA, salvo `pct-exec`) y un sudoers que solo permite ese ayudante (nunca
@@ -65,13 +68,19 @@ main() {
   local sudoers_file=/etc/sudoers.d/infraward-inventory
   local version_file=/etc/infraward/sudoers-version
 
-  local install_sudo=0 arg
+  local install_sudo=0 podman_users='' podman_users_set=0 arg
   for arg in "$@"; do
     case $arg in
       --install-sudo) install_sudo=1 ;;
-      *) die "opción desconocida: '$arg' (solo se admite --install-sudo)" ;;
+      --podman-users=*)
+        podman_users=${arg#--podman-users=}
+        podman_users_set=1
+        ;;
+      *) die "opción desconocida: '$arg' (se admiten --install-sudo y --podman-users=<usuario,…>)" ;;
     esac
   done
+  # Antes de tocar nada: un usuario mal escrito no deja el alta a medias.
+  [ "$podman_users_set" -eq 0 ] || check_podman_users "$podman_users"
 
   case $auth in
     static_key | ca_certificate) ;;
@@ -135,6 +144,7 @@ main() {
   install -d -m 755 /etc/infraward
   printf '%s\n' "$version" >"$version_file"
   chmod 644 "$version_file"
+  [ "$podman_users_set" -eq 0 ] || write_podman_users "$podman_users"
 
   if [ "$auth" = ca_certificate ]; then
     log "CA SSH de InfraWard (versión $ca_version): certificados de vida corta, sin claves estáticas"
@@ -556,15 +566,18 @@ write_sudoers() {
 # argumento y ejecuta el comando sin shell en medio. Así vale igual con sudo y con sudo-rs, que
 # no admite comodines, espacios ni expresiones regulares en los argumentos.
 #
-# AVISO: en nodos Proxmox y hosts Docker la lista es más documentación de intenciones que una
-# barrera real:
+# AVISO: en nodos Proxmox y hosts Docker o Podman la lista es más documentación de intenciones que
+# una barrera real:
 #   - 'pct-exec' ejecuta como root dentro de los CT del nodo (y un CT privilegiado no aísla del
 #     host): así se recogen con Ansible; el ayudante valida el vmid, no el comando.
 #   - Docker: solo consultas de lectura (y 'docker save' de una imagen por su id, a la salida
 #     estándar, para escanearla), pero 'docker inspect' expone la configuración de los
 #     contenedores y cualquier acceso al demonio de Docker equivale a root. No añadas '$user' al
 #     grupo docker.
-# En servidores sin Proxmox ni Docker el ayudante sí limita lo que puede hacer el usuario.
+#   - Podman: lo mismo (consultas de lectura, 'podman save' y 'podman exec <id> nginx -T'), y
+#     Podman rootful como root también equivale a root. Los usuarios rootless de
+#     /etc/infraward/podman-users se consultan por su propio socket.
+# En servidores sin Proxmox, Docker ni Podman el ayudante sí limita lo que puede hacer el usuario.
 EOF
     # sudo-rs (Ubuntu ≥ 25.10) no conoce estas opciones (nunca pide tty ni da el sermón).
     sudo_is_rs || printf 'Defaults:%s !requiretty, !lecture\n' "$user"
@@ -576,6 +589,44 @@ EOF
     die "el sudoers generado no es válido; no se ha cambiado nada"
   fi
   mv -f "$tmp" "$file"
+}
+
+# Usuarios de Podman rootless que se inventarían (sudoers v8): uno por línea en PODMAN_USERS_FILE.
+# El ayudante solo habla con el socket de Podman de esos usuarios (en modo remoto, como el propio
+# usuario y con consultas de lectura). Avisa (sin tocar nada de sus sesiones) si no tienen el socket activo.
+# check_podman_users <a,b,…>: nombres válidos de usuarios que existen y no son root (si no, para).
+check_podman_users() {
+  local name uid
+  local -a names=()
+  [ -z "$1" ] || IFS=, read -r -a names <<<"$1"
+  # `${names[@]+…}`: con la lista vacía y `set -u`, bash < 4.4 da «unbound variable».
+  for name in ${names[@]+"${names[@]}"}; do
+    [[ $name =~ ^[a-z_][a-z0-9_.-]{0,31}$ ]] || die "usuario de Podman no válido: '$name'"
+    uid=$(id -u -- "$name" 2>/dev/null) || die "el usuario de Podman '$name' no existe"
+    [ "$uid" -ne 0 ] || die "'$name' es root: Podman rootful se inventaría siempre, no va en la lista"
+  done
+}
+
+write_podman_users() {
+  local list=$1 name uid tmp out=''
+  local file=/etc/infraward/podman-users
+  local -a names=()
+  check_podman_users "$list"
+  [ -z "$list" ] || IFS=, read -r -a names <<<"$list"
+  for name in ${names[@]+"${names[@]}"}; do
+    uid=$(id -u -- "$name")
+    out+="$name"$'\n'
+    [ -S "/run/user/$uid/podman/podman.sock" ] ||
+      log "AVISO: '$name' no tiene activo el socket de Podman; como él: systemctl --user enable --now podman.socket (y, como root: loginctl enable-linger $name)"
+  done
+  tmp=$(mktemp /etc/infraward/.podman-users.XXXXXX)
+  {
+    printf '# Usuarios de Podman rootless que inventaría InfraWard (script de alta, --podman-users).\n'
+    printf '%s' "$out"
+  } >"$tmp"
+  chmod 644 "$tmp"
+  mv -f "$tmp" "$file"
+  log "Usuarios de Podman rootless: ${list:-ninguno}"
 }
 
 # sudo-rs (el sudo en Rust de Ubuntu ≥ 25.10): sin comodines ni espacios en los argumentos de
@@ -605,7 +656,7 @@ check_root_only_path() {
 # (un test de la API ejecuta este ayudante con binarios falsos y compara una a una, y otro
 # intenta inyectar argumentos). Valida aridad y cada argumento ANTES de ejecutar nada (si algo
 # no cuadra, sale con 64) y ejecuta el binario con `exec`, sin shell en medio. Las consultas de
-# Plesk nunca leen contraseñas ni claves privadas. Se instala siempre: Docker o Plesk pueden
+# Plesk nunca leen contraseñas ni claves privadas. Se instala siempre: Docker, Podman o Plesk pueden
 # llegar después (los binarios se buscan al ejecutar, en un PATH fijo de root).
 install_query_helper() {
   local bash_path dir tmp
@@ -633,6 +684,12 @@ CONTAINER_ID='^[0-9a-f]{64}$'
 IMAGE_ID='^sha256:[0-9a-f]{64}$'
 DOCKER_NAME='^[A-Za-z0-9][A-Za-z0-9_.-]{0,254}$'
 MAX_INSPECT=256
+# Podman rootless (v8): usuarios que se inventarían y dónde está el socket de cada uno.
+PODMAN_USERS=/etc/infraward/podman-users
+RUN_USER=/run/user
+# Un comando como el usuario de un uid (packages/connectors/src/privileged.ts, PODMAN_AS_USER_SCRIPT).
+# shellcheck disable=SC2016 # se expande en el sh que lo ejecuta, no aquí.
+PODMAN_AS_USER='u=$(id -nu "$1") || exit 125; shift; exec runuser -u "$u" -- "$@"'
 
 # Plantillas de `docker --format` (las mismas que packages/connectors/src/docker/formats.ts).
 # shellcheck disable=SC2016 # `$name` y `$net` son de la plantilla de Docker, no del shell.
@@ -803,6 +860,44 @@ $1 == "permitrootlogin" || $1 == "passwordauthentication" || $1 == "kbdinteracti
 '
 SSHD
 NETWORK_FORMAT='{"id":{{json .Id}},"name":{{json .Name}},"driver":{{json .Driver}},"scope":{{json .Scope}},"internal":{{json .Internal}},"createdAt":{{json .Created}},"subnets":[{{range .IPAM.Config}}{"subnet":{{json .Subnet}},"gateway":{{json .Gateway}}},{{end}}null]}'
+# Plantillas de `podman --format` (las mismas que packages/connectors/src/podman/formats.ts, v8).
+# shellcheck disable=SC2016 # `$name` y `$net` son de la plantilla de Podman, no del shell.
+PODMAN_CONTAINER_FORMAT='{"id":{{json .ID}},"name":{{json .Name}},"image":{{json .Config.Image}},"imageId":{{json (printf "sha256:%s" .Image)}},"state":{{json .State.Status}},"createdAt":{{json .Created}},"startedAt":{{json .State.StartedAt}},"ports":{{json .NetworkSettings.Ports}},"bindings":{{json .HostConfig.PortBindings}},"composeProject":{{json (index .Config.Labels "com.docker.compose.project")}},"composeService":{{json (index .Config.Labels "com.docker.compose.service")}},"proxyLabels":[{{range $k, $v := .Config.Labels}}{{$p := split $k "."}}{{$n := len $p}}{{$h := index $p 0}}{{if or (eq $k "traefik.enable") (eq $k "traefik.docker.network")}}[{{json $k}},{{json $v}}],{{else if eq $h "traefik"}}{{if eq $n 5}}{{if and (eq (index $p 1) "http") (eq (index $p 2) "routers")}}{{if or (eq (index $p 4) "rule") (eq (index $p 4) "service")}}[{{json $k}},{{json $v}}],{{end}}{{end}}{{else if eq $n 7}}{{if and (eq (index $p 1) "http") (eq (index $p 2) "services") (eq (index $p 4) "loadbalancer") (eq (index $p 5) "server") (eq (index $p 6) "port")}}[{{json $k}},{{json $v}}],{{end}}{{end}}{{else if eq (index (split $h "_") 0) "caddy"}}{{if eq $n 1}}[{{json $k}},{{json $v}}],{{else if and (eq $n 2) (eq (index $p 1) "reverse_proxy")}}[{{json $k}},{{json $v}}],{{end}}{{end}}{{end}}null],"mounts":[{{range .Mounts}}{"type":{{json .Type}},"name":{{json .Name}},"source":{{json .Source}},"destination":{{json .Destination}},"rw":{{json .RW}}},{{end}}null],"networks":[{{range $name, $net := .NetworkSettings.Networks}}{"name":{{json $name}},"ipv4":{{json $net.IPAddress}},"ipv6":{{json $net.GlobalIPv6Address}},"aliases":{{json $net.Aliases}}},{{end}}null],"pod":{{json .Pod}},"infra":{{json .IsInfra}},"systemdUnit":{{json (index .Config.Labels "PODMAN_SYSTEMD_UNIT")}}}'
+PODMAN_IMAGE_FORMAT='{"id":{{json (printf "sha256:%s" .ID)}},"repoDigests":{{json .RepoDigests}},"repoTags":{{json .RepoTags}},"os":{{json .Os}},"architecture":{{json .Architecture}},"size":{{json .Size}}}'
+PODMAN_NETWORK_FORMAT='{"id":{{json .ID}},"name":{{json .Name}},"driver":{{json .Driver}},"scope":"local","internal":{{json .Internal}},"createdAt":{{json .Created}},"subnets":[{{range .Subnets}}{"subnet":{{json .Subnet.String}},"gateway":{{json .Gateway}}},{{end}}null]}'
+PODMAN_POD_FORMAT='{"id":{{json .Id}},"name":{{json .Name}}}'
+# Detección de Podman rootless (packages/connectors/src/podman/podman-users.ts, v8): se ejecuta aquí,
+# con sh; solo lee y solo salen uids, nombres de usuario, banderas y números.
+IFS= read -r -d '' PODMAN_USERS_FILTER <<'PODUSERS' || true
+LC_ALL=C
+export LC_ALL
+F=/etc/infraward/podman-users
+{
+  if [ -r "$F" ]; then
+    for u in $(awk '{ sub(/#.*/, ""); for (i = 1; i <= NF; i++) if ($i ~ /^[a-z_][a-z0-9_.-]*$/ && length($i) <= 32) print $i }' "$F"); do
+      n=$(id -u -- "$u" 2>/dev/null) || continue
+      echo "$n L"
+    done
+  fi
+  for d in /proc/[0-9]*; do
+    [ "$(cat "$d/comm" 2>/dev/null)" = conmon ] || continue
+    u=$(awk '/^Uid:/ { print $2; exit }' "$d/status" 2>/dev/null)
+    c=$(tr '\0' '\n' <"$d/cmdline" 2>/dev/null | awk 'p == "-c" || p == "--cid" { print; exit } { p = $0 }')
+    [ -n "$c" ] && echo "$u C $c"
+  done | sort -u
+  for s in /run/user/[0-9]*/podman/podman.sock; do
+    [ -S "$s" ] && echo "$s" | awk -F/ '{ print $4, "S" }'
+  done
+  awk -F: '$3 >= 1000 && $3 < 65534 && $6 ~ /^\// { print $3, $6 }' /etc/passwd 2>/dev/null | while read -r n h; do
+    [ -d "$h/.local/share/containers/storage" ] && echo "$n H"
+  done
+} | awk '$1 ~ /^[1-9][0-9]*$/ { u[$1] = 1; if ($2 == "L") l[$1] = 1; else if ($2 == "S") s[$1] = 1; else if ($2 == "H") h[$1] = 1; else if ($2 == "C") c[$1]++ } END { for (n in u) print n, l[n] + 0, s[n] + 0, h[n] + 0, c[n] + 0 }' | sort -n | head -n 200 | while read -r n l s h c; do
+  m=$(id -nu "$n" 2>/dev/null || echo "?")
+  k=0
+  [ -e "/var/lib/systemd/linger/$m" ] && k=1
+  echo "P $n $l $s $h $k $c $m"
+done
+PODUSERS
 
 reject() {
   printf 'infraward-query: rechazado: %s\n' "$*" >&2
@@ -835,6 +930,46 @@ each() {
     i=$((i + 1))
     [[ $a =~ $re ]] || reject "$query: argumento $i no válido"
   done
+}
+# podman_in <ámbito>: PODMAN con el CLI de Podman de ese ámbito (v8). `root`: el propio CLI (Podman
+# no tiene demonio). Un uid: el de un usuario de PODMAN_USERS, por su socket en modo remoto y
+# ejecutado COMO ESE USUARIO (runuser): el socket es suyo y podría cambiarlo en cualquier momento,
+# así que el cliente nunca corre como root. Además, si el socket o su directorio es un enlace, se
+# rechaza (aviso temprano; la barrera es no ser root).
+podman_in() {
+  if [ "$1" = root ]; then
+    PODMAN=(podman)
+    return 0
+  fi
+  check 1 '^[1-9][0-9]{0,9}$' "$1"
+  podman_listed "$1" || reject "$query: el uid $1 no es de un usuario de $PODMAN_USERS"
+  local sock="$RUN_USER/$1/podman/podman.sock"
+  if [ -L "$sock" ] || [ -L "${sock%/*}" ] || [ -L "$RUN_USER/$1" ]; then
+    reject "$query: el socket de Podman del uid $1 es un enlace"
+  fi
+  PODMAN=(sh -c "$PODMAN_AS_USER" sh "$1" env "XDG_RUNTIME_DIR=$RUN_USER/$1" podman --remote --url "unix://$sock")
+}
+# podman_listed <uid>: ¿es el uid de un usuario de PODMAN_USERS?
+podman_listed() {
+  local name
+  [ -f "$PODMAN_USERS" ] || return 1
+  while read -r name; do
+    [ "$(id -u -- "$name" 2>/dev/null)" = "$1" ] && return 0
+  done < <(awk '{ sub(/#.*/, ""); for (i = 1; i <= NF; i++) if ($i ~ /^[a-z_][a-z0-9_.-]*$/ && length($i) <= 32) print $i }' "$PODMAN_USERS")
+  return 1
+}
+# podman_each <expresión> <ámbito> <valores…>: el ámbito y de 1 a MAX_INSPECT valores válidos.
+podman_each() {
+  local re=$1 a i=1
+  shift
+  arity 2 $((MAX_INSPECT + 1))
+  local scope=$1
+  shift
+  for a in "$@"; do
+    i=$((i + 1))
+    [[ $a =~ $re ]] || reject "$query: argumento $i no válido"
+  done
+  podman_in "$scope"
 }
 # guest <nodo> <lxc|qemu> <vmid>: el guest existe en ese nodo.
 guest() {
@@ -894,6 +1029,31 @@ case $query in
     arity 1 1
     check 1 "$IMAGE_ID" "$1"
     run docker save "$1"
+    ;;
+  # v8: Podman. El primer argumento es el ámbito: `root` o el uid de un usuario de PODMAN_USERS.
+  podman-version) arity 0 0 && run podman info --format '{{.Version.Version}}' ;;
+  podman-users) arity 0 0 && run sh -c "$PODMAN_USERS_FILTER" sh ;;
+  podman-ps) arity 1 1 && podman_in "$1" && run "${PODMAN[@]}" ps -a -q --no-trunc ;;
+  podman-inspect-containers) podman_each "$CONTAINER_ID" "$@" && run "${PODMAN[@]}" container inspect --format "$PODMAN_CONTAINER_FORMAT" "${@:2}" ;;
+  podman-pods) arity 1 1 && podman_in "$1" && run "${PODMAN[@]}" pod ps --no-trunc --format "$PODMAN_POD_FORMAT" ;;
+  podman-images) arity 1 1 && podman_in "$1" && run "${PODMAN[@]}" images -q --no-trunc ;;
+  podman-image-inspect) podman_each "$IMAGE_ID" "$@" && run "${PODMAN[@]}" image inspect --format "$PODMAN_IMAGE_FORMAT" "${@:2}" ;;
+  podman-volumes) arity 1 1 && podman_in "$1" && run "${PODMAN[@]}" volume ls -q ;;
+  podman-volume-inspect) podman_each "$DOCKER_NAME" "$@" && run "${PODMAN[@]}" volume inspect --format "$VOLUME_FORMAT" "${@:2}" ;;
+  podman-networks) arity 1 1 && podman_in "$1" && run "${PODMAN[@]}" network ls --format '{{.Name}}' ;;
+  podman-network-inspect) podman_each "$DOCKER_NAME" "$@" && run "${PODMAN[@]}" network inspect --format "$PODMAN_NETWORK_FORMAT" "${@:2}" ;;
+  podman-save)
+    # Una imagen por su id, a la salida estándar (docker-archive): nada de `-o <ruta>`.
+    arity 2 2
+    check 2 "$IMAGE_ID" "$2"
+    podman_in "$1"
+    run "${PODMAN[@]}" save --format docker-archive "$2"
+    ;;
+  podman-nginx-routes)
+    arity 2 2
+    check 2 "$CONTAINER_ID" "$2"
+    podman_in "$1"
+    run sh -c "$NGINX_FILTER" sh "${PODMAN[@]}" exec "$2" nginx -T
     ;;
   # v5: rutas de nginx (y NPM en contenedor), filtradas aquí mismo por el filtro de arriba.
   nginx-routes) arity 0 0 && run sh -c "$NGINX_FILTER" sh nginx -T ;;

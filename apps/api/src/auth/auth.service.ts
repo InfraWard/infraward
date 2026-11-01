@@ -4,11 +4,11 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
-import type { SensitiveAction } from '@infraward/shared-types';
 import { ConfigService } from '@nestjs/config';
 import type {
   LoginFailureReason,
   LogoutResponse,
+  SensitiveAction,
   SessionInfo,
   UserProfile,
 } from '@infraward/shared-types';

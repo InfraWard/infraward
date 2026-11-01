@@ -113,10 +113,7 @@ export function createVaultStore(
       `${VAULT_ENV.kvPrefix}: debe quedar fuera del prefijo de la app (OPENBAO_KV_PREFIX), que también lee el worker`,
     );
   }
-  if (
-    source.appOpenbao?.roleId &&
-    source.appOpenbao.roleId.trim() === config.credentials.roleId
-  ) {
+  if (source.appOpenbao?.roleId?.trim() === config.credentials.roleId) {
     throw new Error(
       `${VAULT_ENV.roleId}: la caja fuerte necesita su propia AppRole (infraward-vault), no la de la app`,
     );

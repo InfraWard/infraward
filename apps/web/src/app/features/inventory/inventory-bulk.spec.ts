@@ -145,7 +145,7 @@ describe('InventoryTree: selección, lote y exportación', () => {
       'db: Solo se escanean contenedores activos',
     );
     expect(message.querySelector('[data-bulk-activity]')!.getAttribute('href')).toBe(
-      '/activity?parentJobId=op-1',
+      '/activity/op-1',
     );
     // La selección se vacía.
     expect(el.querySelector('[data-bulk-bar]')).toBeNull();

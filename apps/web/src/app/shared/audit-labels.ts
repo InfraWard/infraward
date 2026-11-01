@@ -92,6 +92,12 @@ export const AUDIT_ACTION_LABELS: Record<AuditAction, string> = {
   'terminal.session_revoked': 'Terminal cortada',
   'access.granted': 'Acceso a la terminal concedido',
   'access.revoked': 'Acceso a la terminal retirado',
+  'finding.accepted': 'Riesgo aceptado',
+  'finding.reopened': 'Riesgo aceptado reabierto',
+  'alerts.channel_created': 'Canal de alertas creado',
+  'alerts.channel_updated': 'Canal de alertas cambiado',
+  'alerts.channel_deleted': 'Canal de alertas borrado',
+  'alerts.channel_tested': 'Prueba de canal de alertas',
 };
 
 export const AUDIT_CATEGORY_LABELS: Record<AuditCategory, string> = {
@@ -112,6 +118,8 @@ export const AUDIT_CATEGORY_LABELS: Record<AuditCategory, string> = {
   vault: 'Caja fuerte',
   terminal: 'Terminal',
   access: 'Acceso a la terminal',
+  finding: 'Riesgos aceptados',
+  alerts: 'Alertas',
 };
 
 const TERMINAL_CLOSE_LABELS: Record<string, string> = {
@@ -298,6 +306,42 @@ function bulkDetail(d: AuditEvent['details']): string[] {
   return parts;
 }
 
+/** Detalle de una aceptación del riesgo: cuántos, qué CVE, motivo y caducidad. */
+function findingDetail(event: AuditEvent): string[] {
+  const d = event.details;
+  const parts: string[] = [];
+  if (typeof d['count'] === 'number') parts.push(`${d['count']} finding(s)`);
+  const cves = Array.isArray(d['vulnerabilities']) ? d['vulnerabilities'] : [];
+  const more = typeof d['moreVulnerabilities'] === 'number' ? d['moreVulnerabilities'] : 0;
+  if (cves.length) parts.push(`${cves.join(', ')}${more ? ` y ${more} más` : ''}`);
+  if (typeof d['reason'] === 'string') parts.push(`motivo: «${d['reason']}»`);
+  if (typeof d['expiresAt'] === 'string')
+    parts.push(`hasta el ${new Date(d['expiresAt']).toLocaleDateString('es')}`);
+  else if (event.action === 'finding.accepted') parts.push('sin caducidad');
+  if (typeof d['viaApi'] === 'string') parts.push(`con el token ${d['viaApi'].replace(/^api:/, '')}…`);
+  return parts;
+}
+
+const ALERT_CHANNEL_TYPE_LABELS: Record<string, string> = {
+  webhook: 'webhook',
+  email: 'correo',
+};
+
+/** Detalle de un canal de alertas: tipo, destino (sin secretos) y qué cambió. */
+function alertsDetail(event: AuditEvent): string[] {
+  const d = event.details;
+  const parts: string[] = [];
+  if (typeof d['type'] === 'string')
+    parts.push(ALERT_CHANNEL_TYPE_LABELS[d['type']] ?? d['type']);
+  if (typeof d['host'] === 'string') parts.push(d['host']);
+  if (typeof d['recipients'] === 'number') parts.push(`${d['recipients']} destinatario(s)`);
+  if (d['enabled'] === false) parts.push('desactivado');
+  if (d['secretChanged'] === true) parts.push('secreto de firma cambiado');
+  if (Array.isArray(d['fields'])) parts.push(`campos: ${d['fields'].join(', ')}`);
+  if (typeof d['error'] === 'string') parts.push(d['error']);
+  return parts;
+}
+
 /** Detalle legible de un evento (en español, sin claves internas). */
 export function auditDetail(event: AuditEvent): string {
   const d = event.details;
@@ -305,6 +349,8 @@ export function auditDetail(event: AuditEvent): string {
   if (event.action.startsWith('vault.')) return vaultDetail(event).join(' · ');
   if (event.action.startsWith('terminal.')) return terminalDetail(event).join(' · ');
   if (event.action.startsWith('access.')) return accessDetail(event).join(' · ');
+  if (event.action.startsWith('finding.')) return findingDetail(event).join(' · ');
+  if (event.action.startsWith('alerts.')) return alertsDetail(event).join(' · ');
   if (event.action.startsWith('asset.bulk_')) parts.push(...bulkDetail(d));
   else if (event.action.startsWith('api_token.')) {
     if (typeof d['prefix'] === 'string') parts.push(`${d['prefix']}…`);

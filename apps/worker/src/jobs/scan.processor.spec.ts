@@ -1,6 +1,6 @@
 import { Logger } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
-import { expandQuery } from '@infraward/connectors';
+import { expandQuery, PODMAN_AS_USER_SCRIPT } from '@infraward/connectors';
 import { Asset, ContainerImage } from '@infraward/domain';
 import type { SecretsService } from '@infraward/secrets';
 import type {
@@ -35,7 +35,14 @@ import type {
 } from '../ssh/ssh-client.js';
 import type { AssetRoute, AssetRoutes } from './asset-routes.js';
 import { ScanProcessor } from './scan.processor.js';
+import { ImageArchiveError, verifyImageArchive } from '../scan/image-archive.js';
 import { SshIdentities } from '../ssh/ssh-identity.js';
+
+// El tar de las pruebas es falso: la comprobación del docker-archive tiene sus propios tests.
+vi.mock('../scan/image-archive.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../scan/image-archive.js')>()),
+  verifyImageArchive: vi.fn(() => Promise.resolve()),
+}));
 
 const IMAGE = `sha256:${'a'.repeat(64)}`;
 /** SBOM real de `trivy image` (nginx:1.25 recortado), con una etiqueta de la imagen. */
@@ -140,6 +147,10 @@ describe('ScanProcessor: image.scan', () => {
       hosts?: string[];
       /** `facts.image.sizeBytes` de la imagen. */
       imageSize?: string | null;
+      /** Resultado de cada descarga, por orden (si no, `stream` en todas). */
+      streams?: Partial<StreamResult>[];
+      /** Uids de Podman rootless con contenedores en el host. */
+      rootlessUids?: number[];
     } = {},
   ) {
     const image: Partial<ContainerImage> = {
@@ -191,6 +202,7 @@ describe('ScanProcessor: image.scan', () => {
       id: 'ct-100',
       name: 'pruebas',
       status: 'active',
+      roles: ['docker-host'],
       facts: {},
       ...options.host,
     };
@@ -204,7 +216,9 @@ describe('ScanProcessor: image.scan', () => {
       transaction: (cb: (m: unknown) => Promise<unknown>) => cb(manager),
       query: vi.fn((sql: string) =>
         Promise.resolve(
-          sql.includes('FROM sboms')
+          sql.includes('rootlessUid')
+            ? (options.rootlessUids ?? []).map((uid) => ({ uid }))
+            : sql.includes('FROM sboms')
             ? options.hasSbom
               ? [{ id: 'sbom-0', content_sha256: 'x', packages_sha256: 'y' }]
               : []
@@ -237,13 +251,14 @@ describe('ScanProcessor: image.scan', () => {
       // Se anota el comando real que ejecuta el ayudante del nodo como root.
       streamToFile: (query, dest) => {
         streamed.push({ argv: expandQuery(query), sudo: true, dest });
-        writeFileSync(dest, 'tar');
+        // Como el de verdad: no sobrescribe (flags `wx`).
+        writeFileSync(dest, 'tar', { flag: 'wx' });
         return Promise.resolve({
           code: 0,
           bytes: 3,
           stderr: '',
           limit: null,
-          ...options.stream,
+          ...(options.streams?.[streamed.length - 1] ?? options.stream),
         });
       },
       streamArgvToFile: () => Promise.reject(new Error('no se usa')),
@@ -614,6 +629,140 @@ describe('ScanProcessor: image.scan', () => {
     });
     // Cada réplica trabaja en su subdirectorio (aquí, sin nombre reservado: `local`).
     expect(readdirSync(join(base, 'local'))).toEqual([]);
+  });
+
+  describe('Podman', () => {
+    const podmanHost = (sudoersVersion = 8) => ({
+      roles: ['podman-host'],
+      facts: { infraward: { sudoersVersion } },
+    });
+    const notFound = {
+      code: 125,
+      stderr: `Error: ${IMAGE}: image not known`,
+    };
+
+    it('host Podman: podman save como root (docker-archive), sin docker save', async () => {
+      const t = setup({ host: podmanHost() });
+      await expect(t.process()).resolves.toMatchObject({ scanStatus: 'scanned' });
+      expect(t.streamed.map((s) => s.argv.slice(4))).toEqual([
+        ['podman', 'save', '--format', 'docker-archive', IMAGE],
+      ]);
+      expect(t.image).toMatchObject({ scanSource: 'docker_save', sourceAssetId: 'ct-100' });
+    });
+
+    it('si root no la tiene, la saca del almacén del usuario rootless por su socket', async () => {
+      const t = setup({
+        host: podmanHost(),
+        route: { ...NODE_ROUTE, via: undefined },
+        rootlessUids: [1000, 1001],
+        streams: [notFound, {}],
+      });
+      await expect(t.process()).resolves.toMatchObject({ scanStatus: 'scanned' });
+      expect(t.streamed.map((s) => s.argv)).toEqual([
+        ['podman', 'save', '--format', 'docker-archive', IMAGE],
+        // Como el usuario 1000 (runuser), no como root: el socket es suyo.
+        [
+          'sh',
+          '-c',
+          PODMAN_AS_USER_SCRIPT,
+          'sh',
+          '1000',
+          'env',
+          'XDG_RUNTIME_DIR=/run/user/1000',
+          'podman',
+          '--remote',
+          '--url',
+          'unix:///run/user/1000/podman/podman.sock',
+          'save',
+          '--format',
+          'docker-archive',
+          IMAGE,
+        ],
+      ]);
+    });
+
+    it('del almacén rootless se comprueba el docker-archive; si no cuadra, se prueba el siguiente', async () => {
+      const verify = vi.mocked(verifyImageArchive);
+      verify.mockClear();
+      verify.mockRejectedValueOnce(new ImageArchiveError('La capa 1 no es la del config de la imagen'));
+      const t = setup({
+        host: podmanHost(),
+        route: { ...NODE_ROUTE, via: undefined },
+        rootlessUids: [1000, 1001],
+        streams: [notFound, {}, {}],
+      });
+      await expect(t.process()).resolves.toMatchObject({ scanStatus: 'scanned' });
+      // Root no la tenía (no se comprueba lo que no se descargó); la de 1000 no cuadra; la de 1001, sí.
+      expect(t.streamed.map((s) => s.argv[4])).toEqual([IMAGE, '1000', '1001']);
+      expect(verify).toHaveBeenCalledTimes(2);
+      expect(verify).toHaveBeenCalledWith(expect.stringMatching(/image\.tar$/), IMAGE);
+    });
+
+    it('lo que da root no pasa por esa comprobación (no lo controla un usuario)', async () => {
+      const verify = vi.mocked(verifyImageArchive);
+      verify.mockClear();
+      const t = setup({ host: podmanHost() });
+      await expect(t.process()).resolves.toMatchObject({ scanStatus: 'scanned' });
+      expect(verify).not.toHaveBeenCalled();
+    });
+
+    it('si ninguna copia rootless cuadra, falla con el motivo y no se guarda', async () => {
+      const verify = vi.mocked(verifyImageArchive);
+      verify.mockClear();
+      verify.mockRejectedValueOnce(new ImageArchiveError('El config no es el de la imagen pedida'));
+      const t = setup({
+        host: podmanHost(),
+        route: { ...NODE_ROUTE, via: undefined },
+        rootlessUids: [1000],
+        streams: [notFound, {}],
+      });
+      await expect(t.process()).rejects.toThrow(/podman save falló \(código 125\)/);
+      expect(t.image.scanStatus).toBe('failed');
+    });
+
+    it('Docker y Podman en el mismo host: docker save primero y, si no la tiene, podman save', async () => {
+      const t = setup({
+        host: { roles: ['docker-host', 'podman-host'], facts: { infraward: { sudoersVersion: 8 } } },
+        streams: [{ code: 1, stderr: 'Error response from daemon: No such image' }, {}],
+      });
+      await expect(t.process()).resolves.toMatchObject({ scanStatus: 'scanned' });
+      expect(t.streamed.map((s) => s.argv.slice(4, 6))).toEqual([
+        ['docker', 'save'],
+        ['podman', 'save'],
+      ]);
+    });
+
+    it('si nadie la tiene, falla con el error del primero', async () => {
+      const t = setup({ host: podmanHost(), rootlessUids: [1000], streams: [notFound, notFound] });
+      await expect(t.process()).rejects.toThrow(
+        `podman save falló (código 125): Error: ${IMAGE}: image not known`,
+      );
+      expect(t.streamed).toHaveLength(2);
+    });
+
+    it('los límites no prueban el siguiente', async () => {
+      const t = setup({
+        host: podmanHost(),
+        rootlessUids: [1000],
+        streams: [{ limit: 'size', code: null }],
+      });
+      await expect(t.process()).resolves.toMatchObject({ scanStatus: 'skipped' });
+      expect(t.streamed).toHaveLength(1);
+    });
+
+    it('con un sudoers anterior a la v8 (por SSH): no escaneada, hay que actualizarlo', async () => {
+      const t = setup({
+        host: { ...podmanHost(7), name: 'podman01' },
+        route: { ...NODE_ROUTE, via: undefined },
+      });
+      await expect(t.process()).resolves.toMatchObject({
+        scanStatus: 'skipped',
+        scanReason: expect.stringMatching(
+          /podman01: sudoers desactualizado \(v7 < v8\).*podman save/,
+        ) as string,
+      });
+      expect(t.streamed).toHaveLength(0);
+    });
   });
 
   it('almacén de containerd: vale si index.json referencia el image ID; si no, no se guarda', async () => {

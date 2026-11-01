@@ -30,6 +30,9 @@ export type UserRole = (typeof USER_ROLES)[number];
  * - `terminal.open`: abrir una terminal interactiva con la cuenta de administración de un
  *   servidor (con reautenticación reciente). El rol solo lo da a admin; a los demás se les
  *   concede por asset, etiqueta o proyecto con una AccessPolicy (sesión 22, `access.ts`).
+ * - `findings.accept`: aceptar el riesgo de findings (con motivo y caducidad) y reabrirlos.
+ * - `alerts.manage`: canales de alertas fuera de la app (webhook, correo): adónde sale lo que
+ *   enseña la campana. Solo admin.
  */
 export const PERMISSIONS = [
   'assets.operate',
@@ -45,6 +48,8 @@ export const PERMISSIONS = [
   'vault.manage',
   'vault.admin',
   'terminal.open',
+  'findings.accept',
+  'alerts.manage',
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -59,6 +64,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
     'secrets.status',
     'connectors.write',
     'vault.manage',
+    'findings.accept',
   ],
   operator: ['assets.operate'],
   auditor: ['audit.read', 'users.read', 'secrets.status'],

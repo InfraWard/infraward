@@ -103,7 +103,7 @@ describe('AssetFindings', () => {
 
     const first = http.expectOne((r) => r.url === '/api/assets/web1/vulnerabilities');
     expect(first.request.params.toString()).toBe(
-      'status=open&minPriority=medium&limit=25&offset=0',
+      'status=open&minPriority=medium&limit=25&offset=0&includeNoise=false',
     );
     first.flush(page([group]));
     await fixture.whenStable();
@@ -127,7 +127,9 @@ describe('AssetFindings', () => {
 
     el.querySelector<HTMLButtonElement>('[data-action="show-all"] button')!.click();
     const all = http.expectOne((r) => r.url === '/api/assets/web1/vulnerabilities');
-    expect(all.request.params.toString()).toBe('status=open&limit=25&offset=0');
+    expect(all.request.params.toString()).toBe(
+      'status=open&limit=25&offset=0&includeNoise=true',
+    );
     all.flush(page([{ ...group, primaryUrl: 'https://avd.aquasec.com/nvd/cve-2024-37371' }]));
     await fixture.whenStable();
     const link = el.querySelector<HTMLAnchorElement>('[data-vulnerability="CVE-2024-37371"] a')!;
@@ -192,13 +194,17 @@ describe('AssetFindings', () => {
         provideHttpClientTesting(),
         {
           provide: ActivatedRoute,
-          useValue: { snapshot: { queryParams: { tab: 'findings', prio: 'any' } } },
+          useValue: {
+            snapshot: { queryParams: { tab: 'findings', prio: 'any', noise: '1' } },
+          },
         },
       ],
     });
     const http = TestBed.inject(HttpTestingController);
     const router = TestBed.inject(Router);
-    vi.spyOn(router, 'url', 'get').mockReturnValue('/assets/web1?tab=findings&prio=any');
+    vi.spyOn(router, 'url', 'get').mockReturnValue(
+      '/assets/web1?tab=findings&prio=any&noise=1',
+    );
     const navigate = vi.spyOn(router, 'navigate').mockResolvedValue(true);
     const navigateByUrl = vi.spyOn(router, 'navigateByUrl').mockResolvedValue(true);
     const fixture = TestBed.createComponent(AssetFindings);
@@ -207,9 +213,11 @@ describe('AssetFindings', () => {
     await fixture.whenStable();
     const el = fixture.nativeElement as HTMLElement;
 
-    // «Ver todas» de la URL: sin prioridad mínima.
+    // «Ver todas» de la URL: sin prioridad mínima y con lo oculto.
     const first = http.expectOne((r) => r.url === '/api/assets/web1/vulnerabilities');
-    expect(first.request.params.toString()).toBe('status=open&limit=25&offset=0');
+    expect(first.request.params.toString()).toBe(
+      'status=open&limit=25&offset=0&includeNoise=true',
+    );
     first.flush(page([group]));
     await fixture.whenStable();
 
@@ -217,7 +225,7 @@ describe('AssetFindings', () => {
     expect(navigateByUrl).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
-        state: { from: { url: '/assets/web1?tab=findings&prio=any', label: 'web1' } },
+        state: { from: { url: '/assets/web1?tab=findings&prio=any&noise=1', label: 'web1' } },
       }),
     );
 
@@ -231,11 +239,43 @@ describe('AssetFindings', () => {
         kev: null,
         epss: null,
         exposed: null,
+        noise: null,
       },
       queryParamsHandling: 'merge',
       replaceUrl: true,
     }));
     http.expectOne((r) => r.url === '/api/assets/web1/vulnerabilities').flush(page([]));
+  });
+
+  it('sin lo oculto por defecto: dice cuánto queda fuera (kernels antiguos) y lo incluye al pulsar', async () => {
+    TestBed.configureTestingModule({
+      imports: [AssetFindings],
+      providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting()],
+    });
+    const http = TestBed.inject(HttpTestingController);
+    const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+    const fixture = TestBed.createComponent(AssetFindings);
+    fixture.componentRef.setInput('assetId', 'rocky');
+    await fixture.whenStable();
+    const el = fixture.nativeElement as HTMLElement;
+
+    http
+      .expectOne((r) => r.url === '/api/assets/rocky/vulnerabilities')
+      .flush({ ...page([group]), hidden: { kernel_not_running: 1088, no_fix_planned: 3 } });
+    await fixture.whenStable();
+    const hidden = el.querySelector('[data-hidden]')!;
+    expect(hidden.textContent).toContain('1088 kernel no en uso');
+    expect(hidden.textContent).toContain('3 sin corrección prevista');
+    expect(el.querySelector('[data-action="show-all"]')).not.toBeNull();
+
+    hidden.querySelector<HTMLAnchorElement>('[data-hidden-reason="kernel_not_running"]')!.click();
+    const withNoise = http.expectOne((r) => r.url === '/api/assets/rocky/vulnerabilities');
+    expect(withNoise.request.params.get('includeNoise')).toBe('true');
+    expect(navigate.mock.calls.at(-1)?.[1]?.queryParams).toMatchObject({ noise: '1' });
+    withNoise.flush({ ...page([group]), hidden: null });
+    await fixture.whenStable();
+    expect(el.querySelector('[data-hidden]')).toBeNull();
+    http.verify();
   });
 });
 

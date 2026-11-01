@@ -19,12 +19,12 @@ import {
   type AssetTreeSummaryNode,
   type ExportFormat,
   type InventoryExportColumn,
+  byCodeUnit,
 } from '@infraward/shared-types';
-import type { MenuItem } from '@openng/optimus-ui/api';
+import type { MenuItem, TreeNode } from '@openng/optimus-ui/api';
 import { CheckboxModule } from '@openng/optimus-ui/checkbox';
 import { MenuModule } from '@openng/optimus-ui/menu';
 import { MultiSelectModule } from '@openng/optimus-ui/multiselect';
-import type { TreeNode } from '@openng/optimus-ui/api';
 import type {
   TreeTableNodeCollapseEvent,
   TreeTableNodeExpandEvent,
@@ -179,7 +179,7 @@ export class InventoryTree {
       }
     };
     walk(this.forest());
-    return { role: [...roles].sort().map((value) => ({ value })) };
+    return { role: [...roles].sort(byCodeUnit).map((value) => ({ value })) };
   });
   private urlTimer: ReturnType<typeof setTimeout> | undefined;
   protected readonly quick = computed(() =>

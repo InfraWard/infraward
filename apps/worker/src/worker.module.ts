@@ -31,7 +31,15 @@ import { WorkerIdentity } from './redis/worker-identity.js';
 import { WorkDirCleaner } from './scan/work-dirs.js';
 import { SchemaGate } from './schema-gate.js';
 import { SystemProcessor } from './jobs/system.processor.js';
-import { execFileRunner, PROCESS_RUNNER, SshClient } from './ssh/ssh-client.js';
+import {
+  execFileRunner,
+  PROCESS_RUNNER,
+  PROCESS_STREAMER,
+  spawnStreamer,
+  SshClient,
+} from './ssh/ssh-client.js';
+import { loggedRunner, loggedStreamer } from './jobs/logged-process.js';
+import { JobRunLogs } from './jobs/job-run-logs.js';
 import { SshIdentities } from './ssh/ssh-identity.js';
 import { HostScanner } from './scan/host-scanner.js';
 import { SbomReevaluator } from './scan/sbom-reevaluator.js';
@@ -46,6 +54,9 @@ import { TrivyRunner } from './scan/trivy-runner.js';
 import { IntelUpdater } from './intel/intel-updater.js';
 import { FindingPrioritizer } from './intel/prioritizer.js';
 import { MetricSampler } from './metrics/metric-sampler.js';
+import { AlertDelivery } from './alerts/alert-delivery.js';
+import { EmailSender } from './alerts/email-sender.js';
+import { AcceptanceExpiry } from './scan/acceptance-expiry.js';
 import { PrioritizeTrigger } from './intel/prioritize-trigger.js';
 import { WorkerLifecycle } from './worker.lifecycle.js';
 
@@ -102,6 +113,7 @@ import { WorkerLifecycle } from './worker.lifecycle.js';
     LeaderElection,
     JobQueues,
     JobRuns,
+    JobRunLogs,
     JobRunner,
     WorkerPool,
     HostSlots,
@@ -128,7 +140,12 @@ import { WorkerLifecycle } from './worker.lifecycle.js';
     FindingPrioritizer,
     MetricSampler,
     PrioritizeTrigger,
-    { provide: PROCESS_RUNNER, useValue: execFileRunner },
+    AcceptanceExpiry,
+    AlertDelivery,
+    EmailSender,
+    // Cada proceso de un job deja su comando, duración y fallo en el log de la ejecución.
+    { provide: PROCESS_RUNNER, useValue: loggedRunner(execFileRunner) },
+    { provide: PROCESS_STREAMER, useValue: loggedStreamer(spawnStreamer) },
     { provide: DISCOVERERS, useFactory: createDiscoverers },
   ],
 })

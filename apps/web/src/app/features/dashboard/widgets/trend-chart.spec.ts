@@ -37,10 +37,6 @@ describe('TrendChart', () => {
   });
 
   it('desde cuándo, la marca de aproximado, la leyenda con el último valor y la tabla', () => {
-    globalThis.ResizeObserver ??= class {
-      observe = () => undefined;
-      disconnect = () => undefined;
-    } as unknown as typeof ResizeObserver;
     const fixture = TestBed.createComponent(TrendWidget);
     fixture.componentRef.setInput('data', data);
     fixture.detectChanges();

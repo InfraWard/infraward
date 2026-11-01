@@ -31,6 +31,8 @@ app-widget-host { display: block; flex: 1; min-width: 0; height: 100%; }
 .dw-value { font-size: 2.1rem; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; color: var(--p-text-color); }
 .dw-detail { display: flex; flex-wrap: wrap; gap: 0.25rem 0.75rem; font-size: 0.9rem; color: var(--p-text-color); }
 .dw-muted { color: var(--p-text-muted-color); font-size: 0.85rem; }
+.dw-run { color: inherit; text-decoration: none; }
+.dw-run:hover, .dw-run:focus-visible { color: var(--p-primary-color); text-decoration: underline; }
 .dw-critical { color: var(--p-app-danger-color); }
 .dw-high { color: var(--p-app-warn-color); }
 .dw-ok { display: flex; gap: 0.4rem; align-items: center; margin: 0; color: var(--p-text-muted-color); }

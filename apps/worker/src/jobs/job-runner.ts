@@ -1,8 +1,12 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { JOB_NAMES } from '@infraward/shared-types';
 import { DelayedError, type Job } from 'bullmq';
 import { DistributedLock, LOCK_TTL_MS } from '../redis/distributed-lock.js';
+import type { EnvironmentVariables } from '../config/env.validation.js';
+import { JobRunLogs } from './job-run-logs.js';
 import { JobRuns } from './job-runs.js';
+import { clipText, RunLog } from './run-log.js';
 import {
   HostBusy,
   JobAborted,
@@ -14,6 +18,10 @@ import {
 
 /** Cada cuánto se renuevan las concesiones y locks de un job en curso. */
 const LEASE_RENEW_MS = 20_000;
+/** Cada cuánto se guarda, como mucho, el log de un job en curso (la web lo va refrescando). */
+const LOG_FLUSH_MS = 2000;
+/** Tope del log de una ejecución si no hay configuración (tests). */
+const DEFAULT_LOG_MAX_KB = 256;
 /** Reintento si la misma operación sobre el mismo asset sigue en curso en otra réplica. */
 const SAME_OPERATION_DELAY_MS = 15_000;
 
@@ -50,10 +58,18 @@ export class JobRunner {
   private readonly running = new Map<string, AbortController>();
   private worker = 'local';
 
+  private readonly logMaxBytes: number;
+
   constructor(
     private readonly runs: JobRuns,
     private readonly locks: DistributedLock,
-  ) {}
+    @Optional() private readonly logs?: JobRunLogs,
+    @Optional() config?: ConfigService<EnvironmentVariables, true>,
+  ) {
+    this.logMaxBytes =
+      (config?.get('COLLECTION_LOG_MAX_KB', { infer: true }) ??
+        DEFAULT_LOG_MAX_KB) * 1024;
+  }
 
   setWorkerName(name: string): void {
     this.worker = name;
@@ -91,6 +107,7 @@ export class JobRunner {
         lease.renew().catch(() => undefined);
     }, LEASE_RENEW_MS);
     heartbeat.unref();
+    const logWriter = this.logWriter(context);
     try {
       return await runInJobContext(context, async () => {
         context.attempt = await this.runs.start(job, this.worker).catch(
@@ -105,13 +122,17 @@ export class JobRunner {
             );
           },
         );
+        logWriter.open();
         await this.lockOperation(context);
-        return process(job);
+        const result = await process(job);
+        logWriter.finished(result);
+        return result;
       });
     } catch (error) {
       const reason = controller.signal.aborted
         ? (controller.signal.reason as AbortReason)
         : null;
+      logWriter.failed(error, reason);
       // El job ya no es de esta réplica: ni se mueve ni se registra nada.
       if (reason === 'lock-lost' || error instanceof SupersededError) {
         this.logger.warn(
@@ -132,8 +153,88 @@ export class JobRunner {
     } finally {
       clearInterval(heartbeat);
       await Promise.allSettled(context.leases.map((l) => l.release()));
+      await logWriter.close();
       this.running.delete(id);
     }
+  }
+
+  /**
+   * Log del intento (DESIGN §20, «Log de cada ejecución»): se abre con el fencing token (solo los
+   * jobs con fila en la Actividad), se guarda cada `LOG_FLUSH_MS` como mucho mientras cambia (la
+   * web lo refresca) y al terminar, con el resultado o el fallo. Un intento que no llegó a hacer
+   * nada (host ocupado, misma operación en curso) no deja log: solo sería ruido.
+   */
+  private logWriter(context: JobContext) {
+    const { job } = context;
+    let timer: NodeJS.Timeout | undefined;
+    let writing: Promise<void> = Promise.resolve();
+    let skip = false;
+    const save = () => {
+      const { log, attempt } = context;
+      if (!log || attempt === null || !this.logs || skip) return writing;
+      writing = writing.then(() =>
+        this.logs!.save(job.id, attempt, this.worker, log),
+      );
+      return writing;
+    };
+    const schedule = () => {
+      timer ??= setTimeout(() => {
+        timer = undefined;
+        void save();
+      }, LOG_FLUSH_MS);
+      timer.unref();
+    };
+    const elapsed = () => {
+      const started = context.log?.startedAt.getTime() ?? Date.now();
+      return Date.now() - started;
+    };
+    return {
+      open: () => {
+        if (!this.logs || context.attempt === null) return;
+        context.log = new RunLog(this.logMaxBytes, schedule);
+        context.log.info(
+          `${job.name} en ${this.worker} (intento ${context.attempt})`,
+        );
+      },
+      finished: (result: unknown) => {
+        const log = context.log;
+        if (!log) return;
+        for (const warning of resultWarnings(result))
+          log.add('warn', 'result', `Aviso: ${warning}`);
+        log.add('info', 'result', `Terminado: ${summarizeResult(result)}`, {
+          durationMs: elapsed(),
+        });
+      },
+      failed: (error: unknown, reason: AbortReason | null) => {
+        const log = context.log;
+        if (!log) return;
+        if (
+          error instanceof HostBusy &&
+          !log.entries.some((e) => e.kind === 'command')
+        ) {
+          skip = true;
+          return;
+        }
+        const message = (error as Error).message ?? 'Error';
+        if (
+          reason ||
+          error instanceof HostBusy ||
+          error instanceof SupersededError
+        )
+          log.add('warn', 'result', `Interrumpido: ${message}`, {
+            durationMs: elapsed(),
+          });
+        else
+          log.add('error', 'result', `Fallido: ${message}`, {
+            durationMs: elapsed(),
+          });
+      },
+      close: async () => {
+        clearTimeout(timer);
+        timer = undefined;
+        await save();
+      },
+    };
   }
 
   /**
@@ -155,4 +256,45 @@ export class JobRunner {
       release: () => lock.release(),
     });
   }
+}
+
+/** Avisos de un resultado (`warnings` de la recolección, del escaneo…). */
+export function resultWarnings(result: unknown): string[] {
+  const warnings = (result as { warnings?: unknown } | null | undefined)
+    ?.warnings;
+  return Array.isArray(warnings)
+    ? warnings.filter((w): w is string => typeof w === 'string')
+    : [];
+}
+
+/**
+ * Resumen del resultado para el log: sus campos simples (`snapshotId: …, roles: [a, b]…`), sin los
+ * avisos (van aparte) ni objetos grandes. El resultado nunca lleva secretos (BullMQ lo guarda y
+ * la API lo devuelve), pero pasa igualmente por la censura al añadirse.
+ */
+export function summarizeResult(result: unknown): string {
+  if (result === undefined || result === null) return 'sin resultado';
+  if (typeof result !== 'object') return clipText(String(result), 500);
+  const parts: string[] = [];
+  for (const [key, value] of Object.entries(
+    result as Record<string, unknown>,
+  )) {
+    if (key === 'warnings' || value === undefined) continue;
+    if (
+      value === null ||
+      ['string', 'number', 'boolean'].includes(typeof value)
+    )
+      parts.push(`${key}: ${String(value)}`);
+    else if (Array.isArray(value))
+      parts.push(
+        value.every((v) => ['string', 'number'].includes(typeof v))
+          ? `${key}: [${clipText(value.join(', '), 300)}]`
+          : `${key}: ${value.length} elementos`,
+      );
+    else if (typeof value === 'object') {
+      const name = (value as { name?: unknown }).name;
+      parts.push(`${key}: ${typeof name === 'string' ? name : '{…}'}`);
+    }
+  }
+  return clipText(parts.join(', ') || 'sin datos', 2000);
 }

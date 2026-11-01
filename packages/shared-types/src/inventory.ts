@@ -2,6 +2,7 @@
 // diffs entre snapshots y notificaciones.
 
 import type { AssetType } from './assets.js';
+import { byCodeUnit } from './sort.js';
 
 // --- Política de inventario ---
 
@@ -123,11 +124,11 @@ export function normalizeScanExclusions(
   const out: ScanExclusions = {};
   const types = [...new Set(ex.types ?? [])]
     .filter((t) => (SCAN_EXCLUDABLE_TYPES as readonly string[]).includes(t))
-    .sort();
+    .sort(byCodeUnit);
   const patterns = [
     ...new Set((ex.namePatterns ?? []).map((p) => p.trim()).filter(Boolean)),
-  ].sort();
-  const assetIds = [...new Set(ex.assetIds ?? [])].sort();
+  ].sort(byCodeUnit);
+  const assetIds = [...new Set(ex.assetIds ?? [])].sort(byCodeUnit);
   if (types.length) out.types = types;
   if (patterns.length) out.namePatterns = patterns;
   if (assetIds.length) out.assetIds = assetIds;
@@ -391,6 +392,8 @@ export const NOTIFICATION_KINDS = [
   'vulnerability_kev',
   /** Un admin reveló una credencial de la caja fuerte (QoL-7): solo la ven los demás admins. */
   'vault_revealed',
+  /** Caducó la aceptación del riesgo de findings de un asset: vuelven a abiertos. */
+  'finding_acceptance_expired',
 ] as const;
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 

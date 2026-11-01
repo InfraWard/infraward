@@ -45,6 +45,23 @@ case "$1" in
 esac
 exit 2
 `;
+/**
+ * systemd falso para «Habilitar Podman» (la imagen no tiene systemd): `loginctl enable-linger` crea
+ * el bus del usuario y `systemctl --user enable --now podman.socket`, su socket de Podman.
+ */
+const UNIX_SOCKET = `python3 -c 'import socket,sys; socket.socket(socket.AF_UNIX).bind(sys.argv[1])'`;
+const FAKE_LOGINCTL = `#!/bin/sh
+[ "$1" = enable-linger ] || exit 2
+n=$(id -u "$2") || exit 1
+sleep 2
+install -d -m 700 -o "$2" "/run/user/$n" && rm -f "/run/user/$n/bus" && ${UNIX_SOCKET} "/run/user/$n/bus" || exit 1
+echo "FAKE_LINGER $2"
+`;
+const FAKE_SYSTEMCTL = `#!/bin/sh
+[ "$*" = '--user enable --now podman.socket' ] || exit 2
+mkdir -p "$XDG_RUNTIME_DIR/podman" && rm -f "$XDG_RUNTIME_DIR/podman/podman.sock" && ${UNIX_SOCKET} "$XDG_RUNTIME_DIR/podman/podman.sock" || exit 1
+echo "FAKE_SOCKET $(id -un)"
+`;
 /** `docker` falso: contenedores en marcha que solo tienen /bin/sh (no bash). */
 const FAKE_DOCKER = `#!/bin/sh
 case "$1" in
@@ -98,12 +115,13 @@ describe('Terminal a través del gateway (e2e)', () => {
   async function ticket(
     token: string,
     assetId: string,
+    action?: object,
   ): Promise<{ status: number; body: CreateTerminalSessionResponse & { code?: string } }> {
     const res = await app.inject({
       method: 'POST',
       url: '/terminal/sessions',
       headers: authHeaders(token),
-      payload: { assetId },
+      payload: action ? { assetId, action } : { assetId },
     });
     responses.push(JSON.stringify(res.headers), res.body);
     return { status: res.statusCode, body: res.json() };
@@ -220,7 +238,9 @@ describe('Terminal a través del gateway (e2e)', () => {
 
   beforeAll(async () => {
     // La preparación construye la imagen del sshd dentro del dind del CI (apt-get) antes de nada:
-    // se registra cada fase para que un paso lento o atascado se vea en el log del job.
+    // se registra cada fase para que un paso lento o atascado se vea en el log del job. Con el
+    // runner ocupado (los tests de integración construyen las mismas imágenes a la vez) pasa de
+    // 5 min: el mismo margen que el `beforeAll` de esos tests.
     const t0 = Date.now();
     const phase = <T>(name: string, step: Promise<T>): Promise<T> => {
       console.log(`[terminal e2e] ${name}…`);
@@ -270,6 +290,8 @@ describe('Terminal a través del gateway (e2e)', () => {
     for (const [path, body] of [
       ['/usr/local/sbin/pct', FAKE_PCT],
       ['/usr/local/bin/docker', FAKE_DOCKER],
+      ['/usr/local/bin/loginctl', FAKE_LOGINCTL],
+      ['/usr/local/bin/systemctl', FAKE_SYSTEMCTL],
     ] as const) {
       const r = await sshd.root(
         `printf '%s' '${body.replaceAll("'", `'\\''`)}' > ${path} && chmod 755 ${path}`,
@@ -357,7 +379,7 @@ describe('Terminal a través del gateway (e2e)', () => {
     };
     gateway = await phase('gateway', startGateway(gatewayEnv));
     adminToken = await loginToken(app, ADMIN.email, ADMIN.password);
-  }, 300_000);
+  }, 600_000);
 
   afterAll(async () => {
     if (process.env.TERMINAL_E2E_DEBUG) console.log(sshd?.logs().split('\n').slice(-60).join('\n'));
@@ -442,6 +464,61 @@ describe('Terminal a través del gateway (e2e)', () => {
     expect(noAdmin.status).toBe(409);
     expect(JSON.stringify(noAdmin.body)).toMatch(/no tiene el acceso interactivo/);
     expect((await ticket(adminToken, ids.domain)).status).toBe(409);
+  });
+
+  it('«Habilitar Podman»: terminal de solo lectura con el comando fijo, solo para usuarios detectados', async () => {
+    const created = await sshd.root('useradd -m -u 1500 podalice && rm -f /etc/infraward/podman-users');
+    expect(created.code, created.stderr).toBe(0);
+    const user = (name: string, uid: number, enabled = false) => ({
+      uid, name, enabled, socket: false, storage: true, linger: false, containers: 1,
+    });
+    await db.query(`UPDATE assets SET facts = $2 WHERE id = $1`, [
+      ids.server,
+      { detected: { podman: '5.4.2', podmanUsers: [user('podalice', 1500), user('ya', 1501, true)] } },
+    ]);
+    // Usuarios que no están detectados, nombres raros o acciones desconocidas: nunca llegan al servidor.
+    const notDetected = await ticket(adminToken, ids.server, { kind: 'podman-enable', users: ['root'] });
+    expect(notDetected.status).toBe(409);
+    expect(
+      (await ticket(adminToken, ids.server, { kind: 'podman-enable', users: ['a;id'] })).status,
+    ).toBe(400);
+    expect((await ticket(adminToken, ids.server, { kind: 'shell', users: ['podalice'] })).status).toBe(
+      400,
+    );
+    expect(
+      (await ticket(adminToken, ids.container, { kind: 'podman-enable', users: ['podalice'] })).status,
+    ).toBe(409);
+
+    const action = { kind: 'podman-enable', users: ['podalice'] };
+    const { status, body } = await ticket(adminToken, ids.server, action);
+    expect(status, JSON.stringify(body)).toBe(201);
+    const terminal = await TestTerminal.open(body.gatewayUrl, body.ticket, undefined, {
+      cookie: authHeaders(adminToken).cookie!,
+    });
+    await terminal.until((t) => !!t.message('ready'), 'ready');
+    expect(terminal.message('ready')).toMatchObject({ readOnly: true, account: 'infraward-admin' });
+    await terminal.waitOutput('+ loginctl enable-linger podalice');
+    terminal.type('echo TECLEADO\r');
+    await terminal.waitOutput('Listo: vuelve a recolectar');
+    const exit = await terminal.waitExit();
+    expect(exit, terminal.output).toMatchObject({ reason: 'exit', code: 0 });
+    expect(terminal.output).toContain('FAKE_LINGER podalice');
+    expect(terminal.output).toContain('FAKE_SOCKET podalice');
+    expect(terminal.output).toContain('Socket: /run/user/1500/podman/podman.sock');
+    expect(terminal.output).not.toContain('TECLEADO');
+    const list = await sshd.root('cat /etc/infraward/podman-users; stat -c %a /etc/infraward/podman-users');
+    expect(list.stdout).toMatch(/^podalice$/m);
+    expect(list.stdout.trim().endsWith('644')).toBe(true);
+
+    await waitFor(async () => (await row(body.sessionId)).state === 'closed', 10_000, () => 'cierre');
+    expect((await row(body.sessionId)).action).toEqual(action);
+    await auditedActions(body.sessionId, 'terminal.session_closed');
+    const [requested]: { details: { action?: unknown; actionUsers?: unknown } }[] = await db.query(
+      `SELECT details FROM audit_events WHERE action = 'terminal.session_requested' AND details->>'sessionId' = $1`,
+      [body.sessionId],
+    );
+    expect(requested!.details).toMatchObject({ action: 'podman-enable', actionUsers: ['podalice'] });
+    await db.query(`UPDATE assets SET facts = '{}' WHERE id = $1`, [ids.server]);
   });
 
   it('sin permiso (editor), sin reautenticación reciente o con un token de API: rechazado', async () => {

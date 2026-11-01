@@ -672,7 +672,7 @@ function tunnelEntry(
   if (!rule || !url) return { hops: [tunnelHop], cut: 'no_route_for_host' };
   const runners = ctx.input.assets.filter(
     (a) =>
-      (a.docker && a.docker.state === 'running' && CLOUDFLARED.test(a.docker.image)) ||
+      (a.docker?.state === 'running' && CLOUDFLARED.test(a.docker.image)) ||
       (!a.docker && a.ports?.some((p) => CLOUDFLARED.test(p.process ?? ''))),
   );
   if (!runners.length) return { hops: [tunnelHop], cut: 'no_cloudflared' };
@@ -736,7 +736,7 @@ function finish(
   cut: ServiceCutReason | null,
   isPublic: boolean,
 ): ResolvedServicePath {
-  const last = hops.filter((h) => h.assetId).at(-1) ?? null;
+  const last = hops.findLast((h) => h.assetId) ?? null;
   const status: ResolvedServicePath['status'] = !hops.length
     ? 'none'
     : cut || !last
